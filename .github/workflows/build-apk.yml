@@ -1,1 +1,1071 @@
+name: Build AR Scale APK
 
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Generate project files
+        run: |
+          mkdir -p generated
+          cd generated
+          mkdir -p "$(dirname 'app/build.gradle.kts')"
+          cat > 'app/build.gradle.kts' <<'ARSCALE_EOF'
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+
+          android {
+              namespace = "com.arscale.app"
+              compileSdk = 34
+
+              defaultConfig {
+                  applicationId = "com.arscale.app"
+                  minSdk = 24
+                  targetSdk = 34
+                  versionCode = 1
+                  versionName = "1.0"
+              }
+
+              buildTypes {
+                  release {
+                      isMinifyEnabled = false
+                  }
+              }
+
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+          }
+
+          dependencies {
+              implementation("com.google.ar:core:1.44.0")
+          }
+          ARSCALE_EOF
+          mkdir -p "$(dirname 'app/src/main/AndroidManifest.xml')"
+          cat > 'app/src/main/AndroidManifest.xml' <<'ARSCALE_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <uses-permission android:name="android.permission.CAMERA" />
+
+              <uses-feature
+                  android:name="android.hardware.camera.ar"
+                  android:required="true" />
+              <uses-feature
+                  android:glEsVersion="0x00020000"
+                  android:required="true" />
+
+              <application
+                  android:allowBackup="true"
+                  android:icon="@drawable/ic_launcher"
+                  android:label="@string/app_name"
+                  android:theme="@style/AppTheme">
+
+                  <meta-data
+                      android:name="com.google.ar.core"
+                      android:value="required" />
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|smallestScreenSize"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          ARSCALE_EOF
+          mkdir -p "$(dirname 'app/src/main/java/com/arscale/app/BackgroundRenderer.kt')"
+          cat > 'app/src/main/java/com/arscale/app/BackgroundRenderer.kt' <<'ARSCALE_EOF'
+          package com.arscale.app
+
+          import android.opengl.GLES11Ext
+          import android.opengl.GLES20
+          import com.google.ar.core.Coordinates2d
+          import com.google.ar.core.Frame
+          import java.nio.ByteBuffer
+          import java.nio.ByteOrder
+          import java.nio.FloatBuffer
+
+          /** Draws the live camera image (external OES texture) as a full-screen quad. */
+          class BackgroundRenderer {
+
+              var textureId: Int = -1
+                  private set
+
+              private var program = 0
+              private var positionAttrib = 0
+              private var texCoordAttrib = 0
+              private var samplerUniform = 0
+
+              private val quadCoords: FloatBuffer = allocFloats(QUAD_COORDS)
+              private val quadTexCoords: FloatBuffer = allocFloats(FloatArray(8))
+
+              fun createOnGlThread() {
+                  val textures = IntArray(1)
+                  GLES20.glGenTextures(1, textures, 0)
+                  textureId = textures[0]
+
+                  val target = GLES11Ext.GL_TEXTURE_EXTERNAL_OES
+                  GLES20.glBindTexture(target, textureId)
+                  GLES20.glTexParameteri(target, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+                  GLES20.glTexParameteri(target, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+                  GLES20.glTexParameteri(target, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+                  GLES20.glTexParameteri(target, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+
+                  program = createProgram(VERTEX_SHADER, FRAGMENT_SHADER)
+                  positionAttrib = GLES20.glGetAttribLocation(program, "a_Position")
+                  texCoordAttrib = GLES20.glGetAttribLocation(program, "a_TexCoord")
+                  samplerUniform = GLES20.glGetUniformLocation(program, "sTexture")
+              }
+
+              fun draw(frame: Frame) {
+                  if (frame.hasDisplayGeometryChanged()) {
+                      quadCoords.position(0)
+                      quadTexCoords.position(0)
+                      frame.transformCoordinates2d(
+                          Coordinates2d.OPENGL_NORMALIZED_DEVICE_COORDINATES,
+                          quadCoords,
+                          Coordinates2d.TEXTURE_NORMALIZED,
+                          quadTexCoords
+                      )
+                      quadCoords.position(0)
+                      quadTexCoords.position(0)
+                  }
+
+                  // No camera image yet.
+                  if (frame.timestamp == 0L) return
+
+                  GLES20.glDisable(GLES20.GL_DEPTH_TEST)
+                  GLES20.glDepthMask(false)
+
+                  GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+                  GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, textureId)
+                  GLES20.glUseProgram(program)
+                  GLES20.glUniform1i(samplerUniform, 0)
+
+                  GLES20.glVertexAttribPointer(positionAttrib, 2, GLES20.GL_FLOAT, false, 0, quadCoords)
+                  GLES20.glVertexAttribPointer(texCoordAttrib, 2, GLES20.GL_FLOAT, false, 0, quadTexCoords)
+                  GLES20.glEnableVertexAttribArray(positionAttrib)
+                  GLES20.glEnableVertexAttribArray(texCoordAttrib)
+
+                  GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+
+                  GLES20.glDisableVertexAttribArray(positionAttrib)
+                  GLES20.glDisableVertexAttribArray(texCoordAttrib)
+
+                  GLES20.glDepthMask(true)
+                  GLES20.glEnable(GLES20.GL_DEPTH_TEST)
+              }
+
+              private fun createProgram(vertexSource: String, fragmentSource: String): Int {
+                  val vs = compileShader(GLES20.GL_VERTEX_SHADER, vertexSource)
+                  val fs = compileShader(GLES20.GL_FRAGMENT_SHADER, fragmentSource)
+                  val p = GLES20.glCreateProgram()
+                  GLES20.glAttachShader(p, vs)
+                  GLES20.glAttachShader(p, fs)
+                  GLES20.glLinkProgram(p)
+                  val status = IntArray(1)
+                  GLES20.glGetProgramiv(p, GLES20.GL_LINK_STATUS, status, 0)
+                  if (status[0] == 0) {
+                      val log = GLES20.glGetProgramInfoLog(p)
+                      GLES20.glDeleteProgram(p)
+                      throw RuntimeException("Could not link program: $log")
+                  }
+                  return p
+              }
+
+              private fun compileShader(type: Int, source: String): Int {
+                  val shader = GLES20.glCreateShader(type)
+                  GLES20.glShaderSource(shader, source)
+                  GLES20.glCompileShader(shader)
+                  val status = IntArray(1)
+                  GLES20.glGetShaderiv(shader, GLES20.GL_COMPILE_STATUS, status, 0)
+                  if (status[0] == 0) {
+                      val log = GLES20.glGetShaderInfoLog(shader)
+                      GLES20.glDeleteShader(shader)
+                      throw RuntimeException("Could not compile shader: $log")
+                  }
+                  return shader
+              }
+
+              companion object {
+                  private val QUAD_COORDS = floatArrayOf(
+                      -1f, -1f,
+                      -1f, 1f,
+                      1f, -1f,
+                      1f, 1f
+                  )
+
+                  private val VERTEX_SHADER = """
+                      attribute vec4 a_Position;
+                      attribute vec2 a_TexCoord;
+                      varying vec2 v_TexCoord;
+                      void main() {
+                          gl_Position = a_Position;
+                          v_TexCoord = a_TexCoord;
+                      }
+                  """.trimIndent()
+
+                  private val FRAGMENT_SHADER = """
+                      #extension GL_OES_EGL_image_external : require
+                      precision mediump float;
+                      varying vec2 v_TexCoord;
+                      uniform samplerExternalOES sTexture;
+                      void main() {
+                          gl_FragColor = texture2D(sTexture, v_TexCoord);
+                      }
+                  """.trimIndent()
+
+                  private fun allocFloats(data: FloatArray): FloatBuffer {
+                      val fb = ByteBuffer.allocateDirect(data.size * 4)
+                          .order(ByteOrder.nativeOrder())
+                          .asFloatBuffer()
+                      fb.put(data)
+                      fb.position(0)
+                      return fb
+                  }
+              }
+          }
+          ARSCALE_EOF
+          mkdir -p "$(dirname 'app/src/main/java/com/arscale/app/MainActivity.kt')"
+          cat > 'app/src/main/java/com/arscale/app/MainActivity.kt' <<'ARSCALE_EOF'
+          package com.arscale.app
+
+          import android.Manifest
+          import android.app.Activity
+          import android.app.AlertDialog
+          import android.content.pm.PackageManager
+          import android.graphics.PointF
+          import android.hardware.display.DisplayManager
+          import android.opengl.GLES20
+          import android.opengl.GLSurfaceView
+          import android.opengl.Matrix
+          import android.os.Bundle
+          import android.view.MotionEvent
+          import android.view.WindowManager
+          import android.widget.Button
+          import android.widget.TextView
+          import android.widget.Toast
+          import com.google.ar.core.Anchor
+          import com.google.ar.core.ArCoreApk
+          import com.google.ar.core.Camera
+          import com.google.ar.core.Config
+          import com.google.ar.core.DepthPoint
+          import com.google.ar.core.Frame
+          import com.google.ar.core.HitResult
+          import com.google.ar.core.Plane
+          import com.google.ar.core.Session
+          import com.google.ar.core.TrackingState
+          import com.google.ar.core.exceptions.CameraNotAvailableException
+          import com.google.ar.core.exceptions.UnavailableApkTooOldException
+          import com.google.ar.core.exceptions.UnavailableArcoreNotInstalledException
+          import com.google.ar.core.exceptions.UnavailableDeviceNotCompatibleException
+          import com.google.ar.core.exceptions.UnavailableSdkTooOldException
+          import com.google.ar.core.exceptions.UnavailableUserDeclinedInstallationException
+          import java.util.Locale
+          import java.util.concurrent.ConcurrentLinkedQueue
+          import javax.microedition.khronos.egl.EGLConfig
+          import javax.microedition.khronos.opengles.GL10
+          import kotlin.math.sqrt
+          import com.google.ar.core.Point as ArPoint
+
+          class MainActivity : Activity(), GLSurfaceView.Renderer {
+
+              private enum class LengthUnit(val label: String, val perMeter: Double, val decimals: Int) {
+                  MM("mm", 1000.0, 0),
+                  CM("cm", 100.0, 1),
+                  M("m", 1.0, 3),
+                  INCH("inch", 39.37007874, 2),
+                  FEET("feet", 3.280839895, 2);
+
+                  fun format(meters: Double): String =
+                      String.format(Locale.US, "%." + decimals + "f %s", meters * perMeter, label)
+              }
+
+              private class MeasurePoint(val anchor: Anchor, val label: String)
+
+              companion object {
+                  private const val CAMERA_REQUEST = 1
+              }
+
+              private var session: Session? = null
+              private var installRequested = false
+
+              private lateinit var surfaceView: GLSurfaceView
+              private lateinit var overlay: OverlayView
+              private lateinit var totalText: TextView
+              private lateinit var statusText: TextView
+              private lateinit var btnUnit: Button
+
+              private val background = BackgroundRenderer()
+
+              // UI thread -> GL thread hand-off
+              private val taps = ConcurrentLinkedQueue<PointF>()
+              private val commands = ConcurrentLinkedQueue<() -> Unit>()
+
+              // Touched only on the GL thread
+              private val points = ArrayList<MeasurePoint>()
+              private var finished = false
+
+              @Volatile
+              private var unit = LengthUnit.CM
+
+              private var viewportW = 1
+              private var viewportH = 1
+
+              @Volatile
+              private var viewportChanged = false
+
+              private var lastTotal = ""
+              private var lastStatus = ""
+
+              private val viewMatrix = FloatArray(16)
+              private val projMatrix = FloatArray(16)
+              private val vpMatrix = FloatArray(16)
+
+              private val displayListener = object : DisplayManager.DisplayListener {
+                  override fun onDisplayAdded(displayId: Int) {}
+                  override fun onDisplayRemoved(displayId: Int) {}
+                  override fun onDisplayChanged(displayId: Int) {
+                      viewportChanged = true
+                  }
+              }
+
+              // ---------------------------------------------------------------- lifecycle
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                  setContentView(R.layout.activity_main)
+
+                  surfaceView = findViewById(R.id.surfaceView)
+                  overlay = findViewById(R.id.overlay)
+                  totalText = findViewById(R.id.totalText)
+                  statusText = findViewById(R.id.statusText)
+                  btnUnit = findViewById(R.id.btnUnit)
+
+                  surfaceView.preserveEGLContextOnPause = true
+                  surfaceView.setEGLContextClientVersion(2)
+                  surfaceView.setEGLConfigChooser(8, 8, 8, 8, 16, 0)
+                  surfaceView.setRenderer(this)
+                  surfaceView.renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
+                  surfaceView.setWillNotDraw(false)
+
+                  // A tap anywhere on the camera view places a point there.
+                  surfaceView.setOnTouchListener { _, ev ->
+                      if (ev.actionMasked == MotionEvent.ACTION_UP) {
+                          taps.add(PointF(ev.x, ev.y))
+                      }
+                      true
+                  }
+
+                  findViewById<Button>(R.id.btnUndo).setOnClickListener {
+                      commands.add({ undoPoint() })
+                  }
+                  findViewById<Button>(R.id.btnEnd).setOnClickListener {
+                      commands.add({ endMeasurement() })
+                  }
+                  findViewById<Button>(R.id.btnReset).setOnClickListener {
+                      commands.add({ resetAll() })
+                  }
+                  btnUnit.setOnClickListener { showUnitDialog() }
+                  updateUnitButton()
+              }
+
+              override fun onResume() {
+                  super.onResume()
+
+                  if (session == null) {
+                      session = createSession() ?: return
+                  }
+
+                  try {
+                      session?.resume()
+                  } catch (e: CameraNotAvailableException) {
+                      Toast.makeText(this, "Camera not available. Close other camera apps and retry.", Toast.LENGTH_LONG).show()
+                      session = null
+                      return
+                  }
+
+                  getSystemService(DisplayManager::class.java)?.registerDisplayListener(displayListener, null)
+                  surfaceView.onResume()
+                  viewportChanged = true
+              }
+
+              override fun onPause() {
+                  super.onPause()
+                  if (session != null) {
+                      getSystemService(DisplayManager::class.java)?.unregisterDisplayListener(displayListener)
+                      // GLSurfaceView must be paused before the session so the GL thread stops using it.
+                      surfaceView.onPause()
+                      session?.pause()
+                  }
+              }
+
+              override fun onDestroy() {
+                  session?.close()
+                  session = null
+                  super.onDestroy()
+              }
+
+              override fun onRequestPermissionsResult(
+                  requestCode: Int,
+                  permissions: Array<out String>,
+                  grantResults: IntArray
+              ) {
+                  super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+                  if (requestCode == CAMERA_REQUEST &&
+                      (grantResults.isEmpty() || grantResults[0] != PackageManager.PERMISSION_GRANTED)
+                  ) {
+                      Toast.makeText(this, "Camera permission is required for AR Scale", Toast.LENGTH_LONG).show()
+                      finish()
+                  }
+              }
+
+              private fun createSession(): Session? {
+                  try {
+                      if (ArCoreApk.getInstance().requestInstall(this, !installRequested) ==
+                          ArCoreApk.InstallStatus.INSTALL_REQUESTED
+                      ) {
+                          installRequested = true
+                          return null
+                      }
+
+                      if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                          requestPermissions(arrayOf(Manifest.permission.CAMERA), CAMERA_REQUEST)
+                          return null
+                      }
+
+                      val s = Session(this)
+                      val config = s.config
+                      config.planeFindingMode = Config.PlaneFindingMode.HORIZONTAL_AND_VERTICAL
+                      config.updateMode = Config.UpdateMode.LATEST_CAMERA_IMAGE
+                      config.focusMode = Config.FocusMode.AUTO
+                      config.lightEstimationMode = Config.LightEstimationMode.DISABLED
+                      if (s.isDepthModeSupported(Config.DepthMode.AUTOMATIC)) {
+                          // Depth lets us measure plain walls where plane detection struggles.
+                          config.depthMode = Config.DepthMode.AUTOMATIC
+                      }
+                      s.configure(config)
+                      return s
+                  } catch (e: UnavailableUserDeclinedInstallationException) {
+                      fatal("Please install \"Google Play Services for AR\" to use this app.")
+                  } catch (e: UnavailableArcoreNotInstalledException) {
+                      fatal("Please install \"Google Play Services for AR\" to use this app.")
+                  } catch (e: UnavailableApkTooOldException) {
+                      fatal("Please update \"Google Play Services for AR\".")
+                  } catch (e: UnavailableSdkTooOldException) {
+                      fatal("Please update this app.")
+                  } catch (e: UnavailableDeviceNotCompatibleException) {
+                      fatal("This device does not support AR.")
+                  } catch (e: Exception) {
+                      fatal("Could not start AR: " + e.message)
+                  }
+                  return null
+              }
+
+              private fun fatal(message: String) {
+                  Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+                  finish()
+              }
+
+              // ---------------------------------------------------------------- GL renderer
+
+              override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
+                  GLES20.glClearColor(0f, 0f, 0f, 1f)
+                  background.createOnGlThread()
+              }
+
+              override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
+                  GLES20.glViewport(0, 0, width, height)
+                  viewportW = width
+                  viewportH = height
+                  viewportChanged = true
+              }
+
+              override fun onDrawFrame(gl: GL10?) {
+                  GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
+                  val session = this.session ?: return
+
+                  if (viewportChanged) {
+                      @Suppress("DEPRECATION")
+                      val rotation = windowManager.defaultDisplay.rotation
+                      session.setDisplayGeometry(rotation, viewportW, viewportH)
+                      viewportChanged = false
+                  }
+                  session.setCameraTextureName(background.textureId)
+
+                  val frame: Frame = try {
+                      session.update()
+                  } catch (e: CameraNotAvailableException) {
+                      setStatus("Camera not available. Close other apps using the camera.")
+                      return
+                  } catch (e: Exception) {
+                      return
+                  }
+
+                  background.draw(frame)
+                  val camera = frame.camera
+
+                  // Undo / End / Reset requests from the buttons.
+                  while (true) {
+                      val command = commands.poll() ?: break
+                      command()
+                  }
+
+                  // Taps -> new points.
+                  val tracking = camera.trackingState == TrackingState.TRACKING
+                  while (true) {
+                      val tap = taps.poll() ?: break
+                      if (finished) {
+                          toast("Measurement ended. Press Reset to start again.")
+                          continue
+                      }
+                      if (!tracking) {
+                          toast("Tracking not ready. Move the phone slowly.")
+                          continue
+                      }
+                      val hit = pickHit(frame, tap.x, tap.y)
+                      if (hit == null) {
+                          toast("No surface found there. Move slowly / closer and tap again.")
+                          continue
+                      }
+                      points.add(MeasurePoint(hit.createAnchor(), labelFor(points.size)))
+                  }
+
+                  publish(camera, tracking)
+              }
+
+              private fun pickHit(frame: Frame, x: Float, y: Float): HitResult? {
+                  for (hit in frame.hitTest(x, y)) {
+                      val t = hit.trackable
+                      val ok = when (t) {
+                          is Plane -> t.isPoseInPolygon(hit.hitPose)
+                          is DepthPoint -> true
+                          is ArPoint -> t.orientationMode == ArPoint.OrientationMode.ESTIMATED_SURFACE_NORMAL
+                          else -> false
+                      }
+                      if (ok) return hit
+                  }
+                  return null
+              }
+
+              // ---------------------------------------------------------------- measuring
+
+              private fun labelFor(index: Int): String {
+                  // A, B, ... Z, AA, AB, ...
+                  var n = index
+                  val sb = StringBuilder()
+                  do {
+                      sb.insert(0, 'A' + n % 26)
+                      n = n / 26 - 1
+                  } while (n >= 0)
+                  return sb.toString()
+              }
+
+              private fun dist(a: Anchor, b: Anchor): Double {
+                  val pa = a.pose
+                  val pb = b.pose
+                  val dx = (pa.tx() - pb.tx()).toDouble()
+                  val dy = (pa.ty() - pb.ty()).toDouble()
+                  val dz = (pa.tz() - pb.tz()).toDouble()
+                  return sqrt(dx * dx + dy * dy + dz * dz)
+              }
+
+              private fun undoPoint() {
+                  if (points.isEmpty()) return
+                  points.removeAt(points.size - 1).anchor.detach()
+                  finished = false
+              }
+
+              private fun resetAll() {
+                  for (p in points) p.anchor.detach()
+                  points.clear()
+                  finished = false
+              }
+
+              private fun endMeasurement() {
+                  if (points.size < 2) {
+                      toast("Add at least 2 points first.")
+                      return
+                  }
+                  finished = true
+                  val text = summaryText()
+                  runOnUiThread {
+                      AlertDialog.Builder(this)
+                          .setTitle("Measurement result")
+                          .setMessage(text)
+                          .setPositiveButton("OK", null)
+                          .show()
+                  }
+              }
+
+              private fun summaryText(): String {
+                  val sb = StringBuilder()
+                  sb.append("Start: ").append(points.first().label)
+                      .append("     End: ").append(points.last().label).append("\n\n")
+                  var total = 0.0
+                  for (i in 1 until points.size) {
+                      val d = dist(points[i - 1].anchor, points[i].anchor)
+                      total += d
+                      sb.append(points[i - 1].label).append(" → ").append(points[i].label)
+                          .append(" : ").append(unit.format(d)).append('\n')
+                  }
+                  sb.append("\nTotal : ").append(unit.format(total))
+                  return sb.toString()
+              }
+
+              // ---------------------------------------------------------------- overlay / projection
+
+              private fun publish(camera: Camera, tracking: Boolean) {
+                  if (tracking) {
+                      camera.getViewMatrix(viewMatrix, 0)
+                      camera.getProjectionMatrix(projMatrix, 0, 0.05f, 100f)
+                      Matrix.multiplyMM(vpMatrix, 0, projMatrix, 0, viewMatrix, 0)
+                  }
+
+                  val clips = ArrayList<FloatArray?>(points.size)
+                  for (p in points) clips.add(if (tracking) clipOf(p.anchor) else null)
+
+                  val ovPoints = ArrayList<OverlayPoint>()
+                  val ovSegs = ArrayList<OverlaySegment>()
+
+                  for (i in points.indices) {
+                      val c = clips[i] ?: continue
+                      if (c[3] > 0.01f) {
+                          val s = toScreen(c)
+                          val role = if (i == 0) 0 else if (finished && i == points.size - 1) 2 else 1
+                          ovPoints.add(OverlayPoint(points[i].label, s.x, s.y, role))
+                      }
+                  }
+
+                  var total = 0.0
+                  for (i in 1 until points.size) {
+                      val d = dist(points[i - 1].anchor, points[i].anchor)
+                      total += d
+                      val a = clips[i - 1]
+                      val b = clips[i]
+                      if (a != null && b != null) {
+                          val seg = clipSegment(a, b)
+                          if (seg != null) {
+                              val s0 = toScreen(seg.first)
+                              val s1 = toScreen(seg.second)
+                              ovSegs.add(OverlaySegment(s0.x, s0.y, s1.x, s1.y, unit.format(d)))
+                          }
+                      }
+                  }
+
+                  overlay.state = OverlayState(ovPoints, ovSegs)
+                  overlay.postInvalidate()
+
+                  updateTexts(tracking, total)
+              }
+
+              private fun clipOf(anchor: Anchor): FloatArray? {
+                  if (anchor.trackingState != TrackingState.TRACKING) return null
+                  val pose = anchor.pose
+                  val v = floatArrayOf(pose.tx(), pose.ty(), pose.tz(), 1f)
+                  val out = FloatArray(4)
+                  Matrix.multiplyMV(out, 0, vpMatrix, 0, v, 0)
+                  return out
+              }
+
+              private fun toScreen(c: FloatArray): PointF {
+                  val nx = c[0] / c[3]
+                  val ny = c[1] / c[3]
+                  return PointF((nx * 0.5f + 0.5f) * viewportW, (1f - (ny * 0.5f + 0.5f)) * viewportH)
+              }
+
+              /** Clips a segment (in clip space) against the near side so lines stay visible when one end is behind us. */
+              private fun clipSegment(a: FloatArray, b: FloatArray): Pair<FloatArray, FloatArray>? {
+                  val eps = 0.01f
+                  var p0 = a
+                  var p1 = b
+                  if (p0[3] < eps && p1[3] < eps) return null
+                  if (p0[3] < eps) {
+                      p0 = lerp(p0, p1, (eps - p0[3]) / (p1[3] - p0[3]))
+                  } else if (p1[3] < eps) {
+                      p1 = lerp(p1, p0, (eps - p1[3]) / (p0[3] - p1[3]))
+                  }
+                  return Pair(p0, p1)
+              }
+
+              private fun lerp(from: FloatArray, to: FloatArray, t: Float): FloatArray =
+                  FloatArray(4) { from[it] + (to[it] - from[it]) * t }
+
+              // ---------------------------------------------------------------- UI helpers
+
+              private fun updateTexts(tracking: Boolean, total: Double) {
+                  val totalLabel = (if (finished) "Final total: " else "Total: ") + unit.format(total)
+                  val status = when {
+                      !tracking -> "Move the phone slowly to start tracking"
+                      finished -> "Measurement ended. Press Reset for a new one."
+                      points.isEmpty() -> "Tap the start point (A)"
+                      else -> "Tap the next point (" + labelFor(points.size) + ") or press End"
+                  }
+                  if (totalLabel != lastTotal) {
+                      lastTotal = totalLabel
+                      runOnUiThread { totalText.text = totalLabel }
+                  }
+                  setStatus(status)
+              }
+
+              private fun setStatus(text: String) {
+                  if (text != lastStatus) {
+                      lastStatus = text
+                      runOnUiThread { statusText.text = text }
+                  }
+              }
+
+              private fun toast(message: String) {
+                  runOnUiThread { Toast.makeText(this, message, Toast.LENGTH_SHORT).show() }
+              }
+
+              private fun updateUnitButton() {
+                  btnUnit.text = "Unit: " + unit.label
+              }
+
+              private fun showUnitDialog() {
+                  val units = LengthUnit.values()
+                  AlertDialog.Builder(this)
+                      .setTitle("Select unit")
+                      .setItems(units.map { it.label }.toTypedArray()) { _, which ->
+                          unit = units[which]
+                          updateUnitButton()
+                      }
+                      .show()
+              }
+          }
+          ARSCALE_EOF
+          mkdir -p "$(dirname 'app/src/main/java/com/arscale/app/OverlayView.kt')"
+          cat > 'app/src/main/java/com/arscale/app/OverlayView.kt' <<'ARSCALE_EOF'
+          package com.arscale.app
+
+          import android.content.Context
+          import android.graphics.Canvas
+          import android.graphics.Color
+          import android.graphics.Paint
+          import android.graphics.RectF
+          import android.graphics.Typeface
+          import android.util.AttributeSet
+          import android.view.View
+
+          /** role: 0 = start, 1 = middle, 2 = end */
+          class OverlayPoint(val label: String, val x: Float, val y: Float, val role: Int)
+
+          class OverlaySegment(
+              val x1: Float,
+              val y1: Float,
+              val x2: Float,
+              val y2: Float,
+              val text: String
+          )
+
+          class OverlayState(val points: List<OverlayPoint>, val segments: List<OverlaySegment>) {
+              companion object {
+                  val EMPTY = OverlayState(emptyList(), emptyList())
+              }
+          }
+
+          /** Transparent view drawn above the camera: points (A, B, C...), lines and distances. */
+          class OverlayView @JvmOverloads constructor(
+              context: Context,
+              attrs: AttributeSet? = null
+          ) : View(context, attrs) {
+
+              @Volatile
+              var state: OverlayState = OverlayState.EMPTY
+
+              private val d = resources.displayMetrics.density
+
+              private val colorStart = Color.parseColor("#43A047")
+              private val colorMid = Color.parseColor("#1E88E5")
+              private val colorEnd = Color.parseColor("#E53935")
+
+              private val lineOutline = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                  color = Color.BLACK
+                  style = Paint.Style.STROKE
+                  strokeWidth = 7f * d
+                  strokeCap = Paint.Cap.ROUND
+              }
+              private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                  color = Color.WHITE
+                  style = Paint.Style.STROKE
+                  strokeWidth = 3.5f * d
+                  strokeCap = Paint.Cap.ROUND
+              }
+              private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                  style = Paint.Style.FILL
+              }
+              private val dotRing = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                  color = Color.WHITE
+                  style = Paint.Style.FILL
+              }
+              private val pillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                  style = Paint.Style.FILL
+              }
+              private val labelText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                  color = Color.WHITE
+                  textSize = 16f * d
+                  typeface = Typeface.DEFAULT_BOLD
+                  textAlign = Paint.Align.CENTER
+              }
+              private val segText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                  color = Color.WHITE
+                  textSize = 14f * d
+                  typeface = Typeface.DEFAULT_BOLD
+                  textAlign = Paint.Align.CENTER
+              }
+              private val rect = RectF()
+
+              override fun onDraw(canvas: Canvas) {
+                  super.onDraw(canvas)
+                  val s = state
+
+                  for (seg in s.segments) {
+                      canvas.drawLine(seg.x1, seg.y1, seg.x2, seg.y2, lineOutline)
+                      canvas.drawLine(seg.x1, seg.y1, seg.x2, seg.y2, linePaint)
+                  }
+
+                  for (seg in s.segments) {
+                      drawPill(
+                          canvas,
+                          (seg.x1 + seg.x2) / 2f,
+                          (seg.y1 + seg.y2) / 2f,
+                          seg.text,
+                          Color.argb(210, 0, 0, 0),
+                          segText
+                      )
+                  }
+
+                  for (p in s.points) {
+                      val color = when (p.role) {
+                          0 -> colorStart
+                          2 -> colorEnd
+                          else -> colorMid
+                      }
+                      dotPaint.color = color
+                      canvas.drawCircle(p.x, p.y, 9f * d, dotRing)
+                      canvas.drawCircle(p.x, p.y, 6.5f * d, dotPaint)
+                      drawPill(canvas, p.x, p.y - 26f * d, p.label, color, labelText)
+                  }
+              }
+
+              private fun drawPill(
+                  canvas: Canvas,
+                  cx: Float,
+                  cy: Float,
+                  text: String,
+                  bg: Int,
+                  textPaint: Paint
+              ) {
+                  val w = textPaint.measureText(text)
+                  val fm = textPaint.fontMetrics
+                  val h = fm.descent - fm.ascent
+                  val padX = 8f * d
+                  val padY = 4f * d
+                  rect.set(cx - w / 2f - padX, cy - h / 2f - padY, cx + w / 2f + padX, cy + h / 2f + padY)
+                  pillPaint.color = bg
+                  val radius = rect.height() / 2f
+                  canvas.drawRoundRect(rect, radius, radius, pillPaint)
+                  canvas.drawText(text, cx, cy - (fm.ascent + fm.descent) / 2f, textPaint)
+              }
+          }
+          ARSCALE_EOF
+          mkdir -p "$(dirname 'app/src/main/res/drawable/ic_launcher.xml')"
+          cat > 'app/src/main/res/drawable/ic_launcher.xml' <<'ARSCALE_EOF'
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp"
+              android:height="108dp"
+              android:viewportWidth="108"
+              android:viewportHeight="108">
+              <path
+                  android:fillColor="#1E88E5"
+                  android:pathData="M0,0h108v108h-108z" />
+              <path
+                  android:fillColor="#FFFFFF"
+                  android:pathData="M18,40h72v28h-72z" />
+              <path
+                  android:fillColor="#1E88E5"
+                  android:pathData="M26,40h4v12h-4z M38,40h4v16h-4z M50,40h4v12h-4z M62,40h4v16h-4z M74,40h4v12h-4z" />
+          </vector>
+          ARSCALE_EOF
+          mkdir -p "$(dirname 'app/src/main/res/layout/activity_main.xml')"
+          cat > 'app/src/main/res/layout/activity_main.xml' <<'ARSCALE_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent">
+
+              <android.opengl.GLSurfaceView
+                  android:id="@+id/surfaceView"
+                  android:layout_width="match_parent"
+                  android:layout_height="match_parent" />
+
+              <com.arscale.app.OverlayView
+                  android:id="@+id/overlay"
+                  android:layout_width="match_parent"
+                  android:layout_height="match_parent" />
+
+              <LinearLayout
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:layout_gravity="top"
+                  android:background="#99000000"
+                  android:orientation="vertical"
+                  android:padding="12dp">
+
+                  <TextView
+                      android:id="@+id/totalText"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:text="Total: 0.0 cm"
+                      android:textColor="#FFFFFF"
+                      android:textSize="24sp"
+                      android:textStyle="bold" />
+
+                  <TextView
+                      android:id="@+id/statusText"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:text="Move the phone slowly to start tracking"
+                      android:textColor="#E0E0E0"
+                      android:textSize="14sp" />
+              </LinearLayout>
+
+              <LinearLayout
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:layout_gravity="bottom"
+                  android:background="#99000000"
+                  android:orientation="horizontal"
+                  android:padding="8dp">
+
+                  <Button
+                      android:id="@+id/btnUndo"
+                      android:layout_width="0dp"
+                      android:layout_height="wrap_content"
+                      android:layout_weight="1"
+                      android:maxLines="1"
+                      android:text="Undo"
+                      android:textAllCaps="false"
+                      android:textSize="13sp" />
+
+                  <Button
+                      android:id="@+id/btnEnd"
+                      android:layout_width="0dp"
+                      android:layout_height="wrap_content"
+                      android:layout_weight="1"
+                      android:maxLines="1"
+                      android:text="End"
+                      android:textAllCaps="false"
+                      android:textSize="13sp" />
+
+                  <Button
+                      android:id="@+id/btnReset"
+                      android:layout_width="0dp"
+                      android:layout_height="wrap_content"
+                      android:layout_weight="1"
+                      android:maxLines="1"
+                      android:text="Reset"
+                      android:textAllCaps="false"
+                      android:textSize="13sp" />
+
+                  <Button
+                      android:id="@+id/btnUnit"
+                      android:layout_width="0dp"
+                      android:layout_height="wrap_content"
+                      android:layout_weight="1.3"
+                      android:maxLines="1"
+                      android:text="Unit: cm"
+                      android:textAllCaps="false"
+                      android:textSize="13sp" />
+              </LinearLayout>
+          </FrameLayout>
+          ARSCALE_EOF
+          mkdir -p "$(dirname 'app/src/main/res/values/strings.xml')"
+          cat > 'app/src/main/res/values/strings.xml' <<'ARSCALE_EOF'
+          <resources>
+              <string name="app_name">AR Scale</string>
+          </resources>
+          ARSCALE_EOF
+          mkdir -p "$(dirname 'app/src/main/res/values/themes.xml')"
+          cat > 'app/src/main/res/values/themes.xml' <<'ARSCALE_EOF'
+          <resources>
+              <style name="AppTheme" parent="@android:style/Theme.Material.NoActionBar">
+                  <item name="android:windowFullscreen">true</item>
+              </style>
+          </resources>
+          ARSCALE_EOF
+          mkdir -p "$(dirname 'build.gradle.kts')"
+          cat > 'build.gradle.kts' <<'ARSCALE_EOF'
+          plugins {
+              id("com.android.application") version "8.5.2" apply false
+              id("org.jetbrains.kotlin.android") version "1.9.24" apply false
+          }
+          ARSCALE_EOF
+          mkdir -p "$(dirname 'gradle.properties')"
+          cat > 'gradle.properties' <<'ARSCALE_EOF'
+          org.gradle.jvmargs=-Xmx2g -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          android.nonTransitiveRClass=true
+          kotlin.code.style=official
+          ARSCALE_EOF
+          mkdir -p "$(dirname 'settings.gradle.kts')"
+          cat > 'settings.gradle.kts' <<'ARSCALE_EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+
+          rootProject.name = "ARScale"
+          include(":app")
+          ARSCALE_EOF
+
+      - name: Build debug APK
+        working-directory: generated
+        run: gradle assembleDebug --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ARScale-apk
+          path: generated/app/build/outputs/apk/debug/app-debug.apk
