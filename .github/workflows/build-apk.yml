@@ -26,6 +26,56 @@ jobs:
         run: |
           mkdir -p generated
           cd generated
+          mkdir -p "$(dirname 'app/arscale.keystore.b64')"
+          cat > 'app/arscale.keystore.b64' <<'ARSCALE_EOF'
+          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
+          WczpFlDzW5sCAicQ
+          ARSCALE_EOF
           mkdir -p "$(dirname 'app/build.gradle.kts')"
           cat > 'app/build.gradle.kts' <<'ARSCALE_EOF'
           plugins {
@@ -41,13 +91,29 @@ jobs:
                   applicationId = "com.arscale.app"
                   minSdk = 24
                   targetSdk = 34
-                  versionCode = 1
-                  versionName = "1.0"
+                  // Grows with every GitHub build so a new APK can be installed over the old one.
+                  versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
+                  versionName = "1.1"
+              }
+
+              // Same key every build => the phone accepts the new APK as an update (no uninstall needed).
+              signingConfigs {
+                  create("fixed") {
+                      storeFile = file("arscale.keystore")
+                      storePassword = "arscale123"
+                      keyAlias = "arscale"
+                      keyPassword = "arscale123"
+                      storeType = "pkcs12"
+                  }
               }
 
               buildTypes {
+                  getByName("debug") {
+                      signingConfig = signingConfigs.getByName("fixed")
+                  }
                   release {
                       isMinifyEnabled = false
+                      signingConfig = signingConfigs.getByName("fixed")
                   }
               }
 
@@ -62,7 +128,7 @@ jobs:
           }
 
           dependencies {
-              implementation("com.google.ar:core:1.44.0")
+              implementation("com.google.ar:core:1.45.0")
           }
           ARSCALE_EOF
           mkdir -p "$(dirname 'app/src/main/AndroidManifest.xml')"
@@ -261,8 +327,11 @@ jobs:
           import android.Manifest
           import android.app.Activity
           import android.app.AlertDialog
+          import android.content.Context
           import android.content.pm.PackageManager
           import android.graphics.PointF
+          import android.hardware.camera2.CameraCharacteristics
+          import android.hardware.camera2.CameraManager
           import android.hardware.display.DisplayManager
           import android.opengl.GLES20
           import android.opengl.GLSurfaceView
@@ -280,8 +349,10 @@ jobs:
           import com.google.ar.core.DepthPoint
           import com.google.ar.core.Frame
           import com.google.ar.core.HitResult
+          import com.google.ar.core.LightEstimate
           import com.google.ar.core.Plane
           import com.google.ar.core.Session
+          import com.google.ar.core.TrackingFailureReason
           import com.google.ar.core.TrackingState
           import com.google.ar.core.exceptions.CameraNotAvailableException
           import com.google.ar.core.exceptions.UnavailableApkTooOldException
@@ -309,6 +380,12 @@ jobs:
                       String.format(Locale.US, "%." + decimals + "f %s", meters * perMeter, label)
               }
 
+              private enum class FlashSetting(val label: String) {
+                  OFF("Off"),
+                  ON("On"),
+                  AUTO("Auto")
+              }
+
               private class MeasurePoint(val anchor: Anchor, val label: String)
 
               companion object {
@@ -323,6 +400,18 @@ jobs:
               private lateinit var totalText: TextView
               private lateinit var statusText: TextView
               private lateinit var btnUnit: Button
+              private lateinit var btnFlash: Button
+
+              @Volatile
+              private var hasFlash = false
+
+              @Volatile
+              private var flashSetting = FlashSetting.OFF
+
+              // GL thread only
+              private var torchOn = false
+              private var darkFrames = 0
+              private var autoLatched = false
 
               private val background = BackgroundRenderer()
 
@@ -333,6 +422,7 @@ jobs:
               // Touched only on the GL thread
               private val points = ArrayList<MeasurePoint>()
               private var finished = false
+              private var trackingLost = false
 
               @Volatile
               private var unit = LengthUnit.CM
@@ -370,6 +460,7 @@ jobs:
                   totalText = findViewById(R.id.totalText)
                   statusText = findViewById(R.id.statusText)
                   btnUnit = findViewById(R.id.btnUnit)
+                  btnFlash = findViewById(R.id.btnFlash)
 
                   surfaceView.preserveEGLContextOnPause = true
                   surfaceView.setEGLContextClientVersion(2)
@@ -397,6 +488,21 @@ jobs:
                   }
                   btnUnit.setOnClickListener { showUnitDialog() }
                   updateUnitButton()
+
+                  // Flash: Off -> On -> Auto -> Off
+                  btnFlash.setOnClickListener {
+                      if (!hasFlash) {
+                          toast("This camera has no flash")
+                      } else {
+                          flashSetting = when (flashSetting) {
+                              FlashSetting.OFF -> FlashSetting.ON
+                              FlashSetting.ON -> FlashSetting.AUTO
+                              FlashSetting.AUTO -> FlashSetting.OFF
+                          }
+                          updateFlashButton()
+                      }
+                  }
+                  updateFlashButton()
               }
 
               override fun onResume() {
@@ -404,7 +510,10 @@ jobs:
 
                   if (session == null) {
                       session = createSession() ?: return
+                      updateFlashButton()
                   }
+                  // The camera restarts on resume; re-read the real torch state on the GL thread.
+                  commands.add({ torchOn = session?.config?.flashMode == Config.FlashMode.TORCH })
 
                   try {
                       session?.resume()
@@ -468,12 +577,22 @@ jobs:
                       config.planeFindingMode = Config.PlaneFindingMode.HORIZONTAL_AND_VERTICAL
                       config.updateMode = Config.UpdateMode.LATEST_CAMERA_IMAGE
                       config.focusMode = Config.FocusMode.AUTO
-                      config.lightEstimationMode = Config.LightEstimationMode.DISABLED
+                      // Needed for the Auto flash mode (measures how dark the scene is).
+                      config.lightEstimationMode = Config.LightEstimationMode.AMBIENT_INTENSITY
+                      config.flashMode = Config.FlashMode.OFF
                       if (s.isDepthModeSupported(Config.DepthMode.AUTOMATIC)) {
                           // Depth lets us measure plain walls where plane detection struggles.
                           config.depthMode = Config.DepthMode.AUTOMATIC
                       }
                       s.configure(config)
+
+                      hasFlash = try {
+                          val manager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
+                          manager.getCameraCharacteristics(s.cameraConfig.cameraId)
+                              .get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+                      } catch (e: Exception) {
+                          false
+                      }
                       return s
                   } catch (e: UnavailableUserDeclinedInstallationException) {
                       fatal("Please install \"Google Play Services for AR\" to use this app.")
@@ -540,8 +659,14 @@ jobs:
                       command()
                   }
 
+                  updateTorch(session, frame, camera)
+
                   // Taps -> new points.
                   val tracking = camera.trackingState == TrackingState.TRACKING
+                  if (!tracking && points.isNotEmpty() && !finished) {
+                      // Positions may drift while tracking is lost, so remember it and warn in the result.
+                      trackingLost = true
+                  }
                   while (true) {
                       val tap = taps.poll() ?: break
                       if (finished) {
@@ -549,12 +674,16 @@ jobs:
                           continue
                       }
                       if (!tracking) {
-                          toast("Tracking not ready. Move the phone slowly.")
+                          toast("Tracking not ready. " + failureHint(camera))
                           continue
                       }
                       val hit = pickHit(frame, tap.x, tap.y)
                       if (hit == null) {
                           toast("No surface found there. Move slowly / closer and tap again.")
+                          continue
+                      }
+                      if (hit.distance > 5f) {
+                          toast("That point is too far (%.1f m). Move within 5 m and tap again.".format(Locale.US, hit.distance))
                           continue
                       }
                       points.add(MeasurePoint(hit.createAnchor(), labelFor(points.size)))
@@ -563,18 +692,76 @@ jobs:
                   publish(camera, tracking)
               }
 
+              /**
+               * Applies the flash setting. Auto turns the torch on once the scene has been dark for about a
+               * second and keeps it on (so it doesn't flicker as the torch itself brightens the scene).
+               */
+              private fun updateTorch(session: Session, frame: Frame, camera: Camera) {
+                  if (!hasFlash) return
+                  val desired = when (flashSetting) {
+                      FlashSetting.OFF -> {
+                          autoLatched = false
+                          darkFrames = 0
+                          false
+                      }
+                      FlashSetting.ON -> {
+                          autoLatched = false
+                          darkFrames = 0
+                          true
+                      }
+                      FlashSetting.AUTO -> {
+                          val estimate = frame.lightEstimate
+                          val dark = camera.trackingFailureReason == TrackingFailureReason.INSUFFICIENT_LIGHT ||
+                              (estimate.state == LightEstimate.State.VALID && estimate.pixelIntensity < 0.15f)
+                          darkFrames = if (dark) darkFrames + 1 else 0
+                          if (darkFrames > 30) autoLatched = true
+                          autoLatched
+                      }
+                  }
+                  if (desired != torchOn) {
+                      try {
+                          val cfg = session.config
+                          cfg.flashMode = if (desired) Config.FlashMode.TORCH else Config.FlashMode.OFF
+                          session.configure(cfg)
+                          torchOn = desired
+                      } catch (e: Exception) {
+                          hasFlash = false
+                          runOnUiThread { updateFlashButton() }
+                      }
+                  }
+              }
+
+              private fun updateFlashButton() {
+                  btnFlash.text = if (hasFlash) "Flash: " + flashSetting.label else "Flash: n/a"
+              }
+
+              /** Prefers a detected plane, then a depth point, then a feature point (least reliable). */
               private fun pickHit(frame: Frame, x: Float, y: Float): HitResult? {
+                  var plane: HitResult? = null
+                  var depth: HitResult? = null
+                  var feature: HitResult? = null
                   for (hit in frame.hitTest(x, y)) {
                       val t = hit.trackable
-                      val ok = when (t) {
-                          is Plane -> t.isPoseInPolygon(hit.hitPose)
-                          is DepthPoint -> true
-                          is ArPoint -> t.orientationMode == ArPoint.OrientationMode.ESTIMATED_SURFACE_NORMAL
-                          else -> false
+                      if (t is Plane) {
+                          if (plane == null && t.isPoseInPolygon(hit.hitPose)) plane = hit
+                      } else if (t is DepthPoint) {
+                          if (depth == null) depth = hit
+                      } else if (t is ArPoint) {
+                          if (feature == null && t.orientationMode == ArPoint.OrientationMode.ESTIMATED_SURFACE_NORMAL) {
+                              feature = hit
+                          }
                       }
-                      if (ok) return hit
                   }
-                  return null
+                  return plane ?: depth ?: feature
+              }
+
+              private fun failureHint(camera: Camera): String {
+                  return when (camera.trackingFailureReason) {
+                      TrackingFailureReason.INSUFFICIENT_LIGHT -> "Too dark - turn on the lights or set Flash to On/Auto."
+                      TrackingFailureReason.EXCESSIVE_MOTION -> "Moving too fast - slow down."
+                      TrackingFailureReason.INSUFFICIENT_FEATURES -> "Point at a surface with more detail/texture."
+                      else -> "Move the phone slowly."
+                  }
               }
 
               // ---------------------------------------------------------------- measuring
@@ -603,12 +790,14 @@ jobs:
                   if (points.isEmpty()) return
                   points.removeAt(points.size - 1).anchor.detach()
                   finished = false
+                  if (points.isEmpty()) trackingLost = false
               }
 
               private fun resetAll() {
                   for (p in points) p.anchor.detach()
                   points.clear()
                   finished = false
+                  trackingLost = false
               }
 
               private fun endMeasurement() {
@@ -639,6 +828,10 @@ jobs:
                           .append(" : ").append(unit.format(d)).append('\n')
                   }
                   sb.append("\nTotal : ").append(unit.format(total))
+                  if (trackingLost) {
+                      sb.append("\n\nWarning: tracking was lost while measuring, so this result may be wrong. ")
+                          .append("Use good light, move slowly and measure again.")
+                  }
                   return sb.toString()
               }
 
@@ -685,7 +878,7 @@ jobs:
                   overlay.state = OverlayState(ovPoints, ovSegs)
                   overlay.postInvalidate()
 
-                  updateTexts(tracking, total)
+                  updateTexts(camera, tracking, total)
               }
 
               private fun clipOf(anchor: Anchor): FloatArray? {
@@ -722,10 +915,11 @@ jobs:
 
               // ---------------------------------------------------------------- UI helpers
 
-              private fun updateTexts(tracking: Boolean, total: Double) {
+              private fun updateTexts(camera: Camera, tracking: Boolean, total: Double) {
                   val totalLabel = (if (finished) "Final total: " else "Total: ") + unit.format(total)
                   val status = when {
-                      !tracking -> "Move the phone slowly to start tracking"
+                      !tracking -> "Tracking lost. " + failureHint(camera)
+                      trackingLost && !finished -> "Warning: tracking was lost, result may be off. Reset and retry."
                       finished -> "Measurement ended. Press Reset for a new one."
                       points.isEmpty() -> "Tap the start point (A)"
                       else -> "Tap the next point (" + labelFor(points.size) + ") or press End"
@@ -999,14 +1193,24 @@ jobs:
                       android:textSize="13sp" />
 
                   <Button
+                      android:id="@+id/btnFlash"
+                      android:layout_width="0dp"
+                      android:layout_height="wrap_content"
+                      android:layout_weight="1.5"
+                      android:maxLines="1"
+                      android:text="Flash: Off"
+                      android:textAllCaps="false"
+                      android:textSize="12sp" />
+
+                  <Button
                       android:id="@+id/btnUnit"
                       android:layout_width="0dp"
                       android:layout_height="wrap_content"
-                      android:layout_weight="1.3"
+                      android:layout_weight="1.4"
                       android:maxLines="1"
                       android:text="Unit: cm"
                       android:textAllCaps="false"
-                      android:textSize="13sp" />
+                      android:textSize="12sp" />
               </LinearLayout>
           </FrameLayout>
           ARSCALE_EOF
@@ -1059,6 +1263,10 @@ jobs:
           rootProject.name = "ARScale"
           include(":app")
           ARSCALE_EOF
+
+      - name: Restore signing key
+        working-directory: generated
+        run: base64 -d app/arscale.keystore.b64 > app/arscale.keystore
 
       - name: Build debug APK
         working-directory: generated
