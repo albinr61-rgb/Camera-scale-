@@ -2,533 +2,335 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0e1013">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<title>TapeCam</title>
+<title>TapeCam AR</title>
 <style>
-  /* Layout: full-height phone app. Header, photo stage (flex), bottom control panel with a tape-measure tick edge. */
   :root{
-    --bg:#0e1013; --panel:#171a1f; --line:#2a2f37; --fg:#eef1f4; --mute:#98a1ad;
-    --tape:#ffc933; --tape-ink:#1b1400; --cal:#6df0a8; --danger:#ff6b6b;
+    --bg:#0e1013; --panel:rgba(14,16,19,.86); --line:#2f353e; --fg:#eef1f4; --mute:#9aa3af;
+    --tape:#ffc933; --ink:#1b1400; --danger:#ff6b6b;
     --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
     --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-    color-scheme:dark;
   }
   *{box-sizing:border-box}
   [hidden]{display:none!important}
-  html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font:15px/1.4 var(--sans);
-    overscroll-behavior:none;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
-  #app{height:100%;height:100dvh;display:flex;flex-direction:column;
-    padding-top:env(safe-area-inset-top);
-    padding-left:max(0px,env(safe-area-inset-left));padding-right:max(0px,env(safe-area-inset-right))}
-  header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px}
-  .brand{font-weight:800;letter-spacing:.04em}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:15px/1.45 var(--sans)}
+  #start{min-height:100%;display:flex;flex-direction:column;justify-content:center;gap:18px;max-width:520px;margin:0 auto;
+    padding:max(24px,env(safe-area-inset-top)) 20px max(24px,env(safe-area-inset-bottom))}
+  .brand{font-size:30px;font-weight:800;letter-spacing:.03em}
   .brand i{font-style:normal;color:var(--tape)}
-  .steps{display:flex;gap:6px}
-  .steps span{font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding:4px 9px;border-radius:999px;
-    border:1px solid var(--line);color:var(--mute)}
-  .steps span.on{background:var(--tape);color:var(--tape-ink);border-color:var(--tape);font-weight:700}
+  #start p{margin:0;color:var(--mute)}
+  ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
+  .btn{min-height:50px;border-radius:12px;border:1px solid var(--line);background:#20252c;color:var(--fg);
+    font:inherit;font-weight:700;padding:0 18px;cursor:pointer}
+  .btn.primary{background:var(--tape);color:var(--ink);border-color:var(--tape);font-size:17px;min-height:56px}
+  .btn:disabled{opacity:.4}
+  .btn:focus-visible{outline:2px solid var(--tape);outline-offset:2px}
+  #msg{color:var(--danger);font-size:14px}
 
-  #stage{position:relative;flex:1;min-height:0;background:#000;overflow:hidden}
-  #video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000}
-  #photo{position:absolute;touch-action:none;cursor:crosshair}
-  #hint{position:absolute;top:10px;left:50%;transform:translateX(-50%);max-width:calc(100% - 32px);
-    background:rgba(14,16,19,.82);border:1px solid var(--line);color:var(--fg);padding:7px 14px;border-radius:999px;
-    font-size:13px;font-weight:600;text-align:center;pointer-events:none;backdrop-filter:blur(6px)}
-  #loupe{position:absolute;top:58px;width:120px;height:120px;border-radius:50%;border:2px solid var(--tape);
-    box-shadow:0 4px 18px rgba(0,0,0,.6);pointer-events:none;background:#000}
-  #toast{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);background:var(--tape);color:var(--tape-ink);
-    font-weight:700;font-size:13px;padding:7px 14px;border-radius:999px;pointer-events:none}
-
-  #panel{position:relative;background:var(--panel);border-top:1px solid var(--line);
-    padding:20px 16px calc(14px + env(safe-area-inset-bottom));max-height:46vh;overflow:auto;
-    display:flex;flex-direction:column;gap:12px}
-  #panel::before{content:"";position:absolute;left:0;right:0;top:0;height:7px;
-    background:repeating-linear-gradient(90deg,#3a414b 0 1px,transparent 1px 8px)}
-  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-  .row>.btn{flex:1 1 0;min-width:96px}
-  .btn{min-height:46px;border-radius:12px;border:1px solid var(--line);background:#20252c;color:var(--fg);
-    font:inherit;font-weight:700;padding:0 16px;cursor:pointer}
-  .btn:active{transform:scale(.98)}
-  .btn.primary{background:var(--tape);color:var(--tape-ink);border-color:var(--tape)}
-  .btn.big{min-height:54px;font-size:16px}
-  .btn.ghost{background:transparent}
-  .btn:disabled{opacity:.38;cursor:default}
-  .btn:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--tape);outline-offset:2px}
-  select,input[type=number]{min-height:44px;border-radius:10px;border:1px solid var(--line);background:#20252c;color:var(--fg);
-    font:inherit;padding:0 10px;min-width:0}
-  .fld{display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--mute);letter-spacing:.04em;text-transform:uppercase}
-  .fld select{font-size:15px;text-transform:none;letter-spacing:0;color:var(--fg)}
-  .note{margin:0;font-size:13px;color:var(--mute)}
-  .muted{color:var(--mute);font-size:13px}
-  .total{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
-  .total .lbl{font-size:12px;color:var(--mute);letter-spacing:.08em;text-transform:uppercase}
-  .total .val{font:700 32px/1.1 var(--mono);color:var(--tape);font-variant-numeric:tabular-nums}
-  .sub{display:flex;justify-content:space-between;font-size:14px;color:var(--mute)}
-  .sub b{font-family:var(--mono);color:var(--fg);font-variant-numeric:tabular-nums}
-  .chips{display:flex;flex-wrap:wrap;gap:6px;max-height:92px;overflow:auto}
-  .chip{font:13px var(--mono);background:#20252c;border:1px solid var(--line);border-radius:8px;padding:4px 8px;
-    font-variant-numeric:tabular-nums;white-space:nowrap}
-  .chip b{color:var(--tape);font-weight:700}
-  .chk{display:flex;align-items:center;gap:8px;font-weight:600;min-height:44px;padding:0 4px}
-  .chk input{width:20px;height:20px;accent-color:var(--tape)}
-  .err{color:var(--danger);font-size:13px;margin:0}
-  @media (prefers-reduced-motion:reduce){.btn:active{transform:none}}
+  /* AR overlay: transparent layer on top of the live camera */
+  #overlay{position:fixed;inset:0;pointer-events:none;overflow:hidden;font-family:var(--sans);color:var(--fg)}
+  #hud{position:absolute;inset:0}
+  .top{position:absolute;top:0;left:0;right:0;padding:max(12px,env(safe-area-inset-top)) 14px 10px;display:flex;flex-direction:column;align-items:center;gap:8px}
+  .total{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:8px 20px;text-align:center;backdrop-filter:blur(6px)}
+  .total small{display:block;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)}
+  .total b{font:700 30px/1.1 var(--mono);color:var(--tape);font-variant-numeric:tabular-nums}
+  #hint{background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:6px 14px;font-size:13px;font-weight:600;text-align:center;max-width:92%}
+  .bar{position:absolute;left:0;right:0;bottom:0;padding:12px 14px max(14px,env(safe-area-inset-bottom));display:flex;gap:10px;pointer-events:auto}
+  .bar .btn{flex:1 1 0;min-width:0;background:var(--panel);backdrop-filter:blur(6px)}
+  .bar .btn.primary{background:var(--tape)}
+  .aim{position:absolute;left:50%;top:50%;width:26px;height:26px;margin:-13px 0 0 -13px;pointer-events:none}
+  .aim::before,.aim::after{content:"";position:absolute;background:var(--tape);box-shadow:0 0 0 1px rgba(0,0,0,.55)}
+  .aim::before{left:12px;top:0;width:2px;height:26px}
+  .aim::after{top:12px;left:0;height:2px;width:26px}
+  .tag{position:absolute;left:0;top:0;transform:translate(-50%,-50%);will-change:transform}
+  .pt{background:var(--tape);color:var(--ink);font:800 13px var(--mono);min-width:26px;height:26px;border-radius:13px;
+    display:flex;align-items:center;justify-content:center;padding:0 7px;border:2px solid rgba(14,16,19,.9);transform:translate(-50%,-190%)}
+  .seg{background:rgba(14,16,19,.88);color:var(--tape);font:700 13px var(--mono);padding:3px 9px;border-radius:999px;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .seg.live{border:1px dashed var(--tape)}
+  #result{position:absolute;left:0;right:0;bottom:0;max-height:70%;overflow:auto;background:var(--panel);backdrop-filter:blur(10px);
+    border-top:1px solid var(--line);border-radius:20px 20px 0 0;padding:16px 16px max(14px,env(safe-area-inset-bottom));
+    display:flex;flex-direction:column;gap:12px;pointer-events:auto}
+  #result .big{display:flex;justify-content:space-between;align-items:baseline}
+  #result .big span{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)}
+  #result .big b{font:700 34px/1.1 var(--mono);color:var(--tape);font-variant-numeric:tabular-nums}
+  .chips{display:flex;flex-wrap:wrap;gap:6px}
+  .chip{font:13px var(--mono);background:#20252c;border:1px solid var(--line);border-radius:8px;padding:5px 9px;font-variant-numeric:tabular-nums}
+  .chip b{color:var(--tape)}
+  .row{display:flex;gap:10px}
+  .row .btn{flex:1 1 0;min-width:0}
 </style>
 </head>
 <body>
-<div id="app">
-  <header>
-    <div class="brand">Tape<i>Cam</i></div>
-    <div class="steps" id="steps">
-      <span data-s="camera">Capture</span><span data-s="calibrate">Scale</span><span data-s="measure">Measure</span>
+
+<main id="start">
+  <div class="brand">Tape<i>Cam</i> AR</div>
+  <p>Camera live-ah paathukitte wall-la nadandhu poi, corner kaatti, total length edukkalam.</p>
+  <ol>
+    <li>Start AR click pannunga, phone-a konjam azhaga move panni surface-a scan pannunga.</li>
+    <li>Wall-la start idathula screen-a tap pannunga (Start).</li>
+    <li>Camera-va nagathi ovvoru corner / elbow-layum tap pannunga (A, B, C...).</li>
+    <li>Kadaisila Finish. Mothama evvalavu nu kaattum.</li>
+  </ol>
+  <button id="go" class="btn primary" disabled>Start AR</button>
+  <div id="msg"></div>
+  <p style="font-size:13px">Android phone + Chrome + ARCore venum. HTTPS link-la thaan work aagum.</p>
+</main>
+
+<div id="overlay">
+  <div id="hud" hidden>
+    <div class="top">
+      <div class="total"><small>Total</small><b id="total">0 cm</b></div>
+      <div id="hint">Phone-a nagathi surface-a scan pannunga</div>
     </div>
-  </header>
-
-  <main id="stage">
-    <video id="video" playsinline muted autoplay></video>
-    <canvas id="photo" hidden></canvas>
-    <div id="hint"></div>
-    <canvas id="loupe" hidden></canvas>
-    <div id="toast" hidden></div>
-  </main>
-
-  <section id="panel" aria-live="polite"></section>
+    <div class="aim"></div>
+    <div id="tags"></div>
+    <div class="bar" id="bar">
+      <button class="btn" id="undo">Undo</button>
+      <button class="btn" id="unit">cm</button>
+      <button class="btn primary" id="finish">Finish</button>
+    </div>
+    <div id="result" hidden>
+      <div class="big"><span>Total length</span><b id="rTotal"></b></div>
+      <div class="chips" id="rChips"></div>
+      <div class="row">
+        <button class="btn" id="rUnit">cm</button>
+        <button class="btn" id="rCopy">Copy</button>
+      </div>
+      <div class="row">
+        <button class="btn" id="rBack">Continue</button>
+        <button class="btn primary" id="rNew">New measure</button>
+      </div>
+    </div>
+  </div>
 </div>
 
-<input type="file" id="fileGallery" accept="image/*" hidden>
-<input type="file" id="fileCamera" accept="image/*" capture="environment" hidden>
-
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 (() => {
   const $ = s => document.querySelector(s);
-  const video = $('#video'), cv = $('#photo'), ctx = cv.getContext('2d');
-  const stage = $('#stage'), hint = $('#hint'), panel = $('#panel');
-  const loupe = $('#loupe'), lctx = loupe.getContext('2d'), toastEl = $('#toast');
+  const startEl = $('#start'), goBtn = $('#go'), msg = $('#msg');
+  const overlay = $('#overlay'), hud = $('#hud'), tagsEl = $('#tags');
+  const hint = $('#hint'), totalEl = $('#total'), resultEl = $('#result'), bar = $('#bar');
 
-  const UNITS = { mm: 1, cm: 10, m: 1000, in: 25.4, ft: 304.8 };
-  const PRESETS = [
-    { id: 'card', label: 'Bank / ID card, long side (85.6 mm)', mm: 85.6 },
-    { id: 'a4l', label: 'A4 paper, long side (297 mm)', mm: 297 },
-    { id: 'a4s', label: 'A4 paper, short side (210 mm)', mm: 210 },
-    { id: 'custom', label: 'My own known length...', mm: 0 }
-  ];
-  const C = { tape: '#ffc933', ink: '#1b1400', dark: 'rgba(14,16,19,.85)', cal: '#6df0a8' };
-  const MONO = 'ui-monospace,SFMono-Regular,Menlo,Consolas,monospace';
-
-  let step = 'camera', stream = null, camErr = '', photo = null;
-  const cal = { pts: [], mmpp: 0, presetId: 'card', customVal: '', customUnit: 'cm' };
-  const pts = [];
-  let temp = null, drag = null, unit = 'cm', closeLoop = false, disp = 1, toastT = 0;
-
-  /* ---------- helpers ---------- */
-  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
-  function lab(i) {
-    if (i === 0) return 'S';
-    let n = i - 1, s = '';
-    do { s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26) - 1; } while (n >= 0);
-    return s;
-  }
-  function fmtLen(mm) {
-    const v = mm / UNITS[unit];
-    const d = unit === 'mm' ? (v < 100 ? 1 : 0) : unit === 'cm' ? 1 : 2;
+  const UNITS = ['cm', 'm', 'in', 'ft', 'mm'];
+  const PER_M = { cm: 100, m: 1, in: 39.3701, ft: 3.28084, mm: 1000 };
+  let unit = 'cm';
+  const fmt = m => {
+    const v = m * PER_M[unit];
+    const d = unit === 'mm' ? 0 : unit === 'm' || unit === 'ft' ? 2 : 1;
     return v.toFixed(d) + ' ' + unit;
-  }
-  function fmtArea(mm2) {
-    const f = UNITS[unit], v = mm2 / (f * f);
-    const d = unit === 'mm' ? 0 : unit === 'cm' ? 1 : 2;
-    return v.toFixed(d) + ' ' + unit + '²';
-  }
-  function toast(msg) {
-    toastEl.textContent = msg; toastEl.hidden = false;
-    clearTimeout(toastT); toastT = setTimeout(() => { toastEl.hidden = true; }, 1800);
-  }
-  const curArr = () => (step === 'calibrate' ? cal.pts : pts);
-  const listOf = A => (temp && drag && drag.mode === 'new' && drag.arr === A ? A.concat([temp]) : A);
-
-  function segments() {
-    const out = [], n = pts.length;
-    for (let i = 1; i < n; i++) out.push({ a: i - 1, b: i, mm: dist(pts[i - 1], pts[i]) * cal.mmpp });
-    if (closeLoop && n >= 3) out.push({ a: n - 1, b: 0, mm: dist(pts[n - 1], pts[0]) * cal.mmpp });
-    return out;
-  }
-  const totalMm = () => segments().reduce((s, x) => s + x.mm, 0);
-  function areaMm2() {
-    const n = pts.length; if (!(closeLoop && n >= 3)) return 0;
-    let a = 0;
-    for (let i = 0; i < n; i++) { const p = pts[i], q = pts[(i + 1) % n]; a += p.x * q.y - q.x * p.y; }
-    return Math.abs(a / 2) * cal.mmpp * cal.mmpp;
-  }
-
-  /* ---------- camera ---------- */
-  function stopCam() {
-    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
-    video.srcObject = null;
-  }
-  async function startCam() {
-    stopCam();
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      camErr = 'Live camera needs a secure page (https). Use "Take photo" instead.';
-      renderPanel(); return;
-    }
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1440 } },
-        audio: false
-      });
-      video.srcObject = stream;
-      await video.play().catch(() => {});
-      camErr = '';
-    } catch (e) {
-      camErr = 'Camera is blocked or not available. Allow camera access, or use "Take photo".';
-    }
-    if (step === 'camera') renderPanel();
-  }
-  function capture() {
-    const vw = video.videoWidth, vh = video.videoHeight;
-    if (!vw || !vh) { toast('Camera not ready yet'); return; }
-    setPhoto(video, vw, vh);
-  }
-  function setPhoto(src, w, h) {
-    const k = Math.min(1, 2000 / Math.max(w, h));
-    const off = document.createElement('canvas');
-    off.width = Math.round(w * k); off.height = Math.round(h * k);
-    off.getContext('2d').drawImage(src, 0, 0, off.width, off.height);
-    photo = off; cv.width = off.width; cv.height = off.height;
-    cal.pts.length = 0; pts.length = 0; cal.mmpp = 0; closeLoop = false; temp = null; drag = null;
-    stopCam();
-    setStep('calibrate');
-  }
-  async function loadFile(file) {
-    if (!file) return;
-    try {
-      let bmp;
-      try { bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }); }
-      catch (_) {
-        bmp = await new Promise((res, rej) => {
-          const im = new Image(), url = URL.createObjectURL(file);
-          im.onload = () => res(im); im.onerror = rej; im.src = url;
-        });
-      }
-      setPhoto(bmp, bmp.width, bmp.height);
-    } catch (e) { toast('Could not open that photo'); }
-  }
-
-  /* ---------- drawing ---------- */
-  function fit() {
-    if (!photo) return;
-    const sw = stage.clientWidth, sh = stage.clientHeight;
-    const s = Math.min(sw / photo.width, sh / photo.height);
-    disp = s;
-    const w = photo.width * s, h = photo.height * s;
-    cv.style.width = w + 'px'; cv.style.height = h + 'px';
-    cv.style.left = (sw - w) / 2 + 'px'; cv.style.top = (sh - h) / 2 + 'px';
-  }
-  function circle(p, r) { ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); }
-  function pill(x, y, text, u, big) {
-    ctx.save();
-    ctx.font = `700 ${(big ? 18 : 13) * u}px ${MONO}`;
-    const w = ctx.measureText(text).width + (big ? 24 : 14) * u, h = (big ? 32 : 21) * u;
-    ctx.fillStyle = C.dark; ctx.beginPath();
-    ctx.roundRect ? ctx.roundRect(x - w / 2, y - h / 2, w, h, h / 2) : ctx.rect(x - w / 2, y - h / 2, w, h);
-    ctx.fill();
-    ctx.fillStyle = C.tape; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(text, x, y + 1 * u);
-    ctx.restore();
-  }
-  function draw() {
-    if (!photo) return;
-    const W = cv.width, H = cv.height, u = 1 / disp;
-    ctx.clearRect(0, 0, W, H);
-    ctx.drawImage(photo, 0, 0);
-    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-
-    // reference line
-    const cp = listOf(cal.pts);
-    if (cp.length) {
-      ctx.save();
-      ctx.globalAlpha = step === 'calibrate' ? 1 : 0.6;
-      if (cp.length === 2) {
-        ctx.strokeStyle = C.dark; ctx.lineWidth = 6 * u; ctx.beginPath(); ctx.moveTo(cp[0].x, cp[0].y); ctx.lineTo(cp[1].x, cp[1].y); ctx.stroke();
-        ctx.strokeStyle = C.cal; ctx.lineWidth = 2.5 * u; ctx.setLineDash([9 * u, 6 * u]);
-        ctx.beginPath(); ctx.moveTo(cp[0].x, cp[0].y); ctx.lineTo(cp[1].x, cp[1].y); ctx.stroke(); ctx.setLineDash([]);
-      }
-      cp.forEach(p => {
-        circle(p, 9 * u); ctx.fillStyle = C.cal; ctx.fill(); ctx.lineWidth = 2.5 * u; ctx.strokeStyle = C.dark; ctx.stroke();
-      });
-      ctx.restore();
-    }
-
-    // measurement path
-    if (step === 'measure' || step === 'result') {
-      const mp = listOf(pts), n = mp.length;
-      const closed = closeLoop && n >= 3;
-      if (n >= 2) {
-        ctx.beginPath(); ctx.moveTo(mp[0].x, mp[0].y);
-        for (let i = 1; i < n; i++) ctx.lineTo(mp[i].x, mp[i].y);
-        if (closed) { ctx.closePath(); ctx.fillStyle = 'rgba(255,201,51,.16)'; ctx.fill(); }
-        ctx.strokeStyle = C.dark; ctx.lineWidth = 7 * u; ctx.stroke();
-        ctx.strokeStyle = C.tape; ctx.lineWidth = 3 * u; ctx.stroke();
-        // segment labels
-        for (let i = 1; i <= (closed ? n : n - 1); i++) {
-          const a = mp[i - 1], b = mp[i % n];
-          const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
-          let nx = -dy / len, ny = dx / len; if (ny > 0) { nx = -nx; ny = -ny; }
-          pill((a.x + b.x) / 2 + nx * 17 * u, (a.y + b.y) / 2 + ny * 17 * u, fmtLen(len * cal.mmpp), u, false);
-        }
-      }
-      mp.forEach((p, i) => {
-        circle(p, 12 * u); ctx.fillStyle = C.tape; ctx.fill(); ctx.lineWidth = 2.5 * u; ctx.strokeStyle = C.dark; ctx.stroke();
-        ctx.fillStyle = C.ink; ctx.font = `800 ${12 * u}px ${MONO}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(lab(i), p.x, p.y + 1 * u);
-      });
-      if (step === 'result' && n >= 2) {
-        ctx.font = `700 ${18 * u}px ${MONO}`;
-        const t = 'Total ' + fmtLen(totalMm());
-        const w = ctx.measureText(t).width + 24 * u;
-        pill(16 * u + w / 2, H - 28 * u, t, u, true);
-      }
-    }
-  }
-
-  /* ---------- loupe ---------- */
-  function showLoupe(p, e) {
-    const r = stage.getBoundingClientRect(), x = e.clientX - r.left;
-    const leftSide = x > r.width / 2;
-    loupe.style.left = leftSide ? '12px' : 'auto';
-    loupe.style.right = leftSide ? 'auto' : '12px';
-    loupe.hidden = false;
-    const S = 120, dpr = window.devicePixelRatio || 1;
-    if (loupe.width !== S * dpr) { loupe.width = S * dpr; loupe.height = S * dpr; }
-    lctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    lctx.fillStyle = '#000'; lctx.fillRect(0, 0, S, S);
-    const src = S / 3 / disp;
-    try { lctx.drawImage(photo, p.x - src / 2, p.y - src / 2, src, src, 0, 0, S, S); } catch (_) {}
-    lctx.strokeStyle = C.tape; lctx.lineWidth = 1.5; lctx.beginPath();
-    const c = S / 2;
-    lctx.moveTo(c - 16, c); lctx.lineTo(c - 4, c); lctx.moveTo(c + 4, c); lctx.lineTo(c + 16, c);
-    lctx.moveTo(c, c - 16); lctx.lineTo(c, c - 4); lctx.moveTo(c, c + 4); lctx.lineTo(c, c + 16);
-    lctx.stroke();
-  }
-  const hideLoupe = () => { loupe.hidden = true; };
-
-  /* ---------- pointer input: press, slide to fine-tune, release to place ---------- */
-  function toImg(e) {
-    const r = cv.getBoundingClientRect();
-    const x = (e.clientX - r.left) * (cv.width / r.width), y = (e.clientY - r.top) * (cv.height / r.height);
-    return { x: Math.max(0, Math.min(cv.width, x)), y: Math.max(0, Math.min(cv.height, y)) };
-  }
-  cv.addEventListener('pointerdown', e => {
-    if (!photo || (step !== 'calibrate' && step !== 'measure')) return;
-    e.preventDefault();
-    cv.setPointerCapture(e.pointerId);
-    const p = toImg(e), arr = curArr(), hitR = 26 / disp;
-    let hit = -1, best = hitR;
-    arr.forEach((q, i) => { const d = dist(p, q); if (d < best) { best = d; hit = i; } });
-    if (hit >= 0) drag = { mode: 'move', arr, idx: hit };
-    else if (step === 'calibrate' && arr.length >= 2) { drag = null; return; }
-    else { drag = { mode: 'new', arr }; temp = p; }
-    if (drag.mode === 'move') arr[hit] = p;
-    showLoupe(p, e); draw();
-  });
-  cv.addEventListener('pointermove', e => {
-    if (!drag) return;
-    const p = toImg(e);
-    if (drag.mode === 'move') drag.arr[drag.idx] = p; else temp = p;
-    showLoupe(p, e); draw();
-  });
-  function endDrag(commit) {
-    if (!drag) return;
-    if (drag.mode === 'new' && commit && temp) drag.arr.push(temp);
-    drag = null; temp = null; hideLoupe();
-    afterChange();
-  }
-  cv.addEventListener('pointerup', () => endDrag(true));
-  cv.addEventListener('pointercancel', () => endDrag(false));
-
-  function afterChange() {
-    setHint();
-    if (step === 'calibrate') { updateCalBtn(); const u = $('[data-act="calUndo"]'); if (u) u.disabled = !cal.pts.length; }
-    if (step === 'measure') updateMeasureUI();
-    draw();
-  }
-
-  /* ---------- UI: hint + panels ---------- */
-  function setHint() {
-    let t = '';
-    if (step === 'camera') t = 'Point at the object, then tap Capture';
-    else if (step === 'calibrate') {
-      t = cal.pts.length === 0 ? 'Tap one end of your reference object'
-        : cal.pts.length === 1 ? 'Tap the other end of the reference'
-        : 'Drag the ends to fine-tune, then pick its length';
-    } else if (step === 'measure') {
-      t = pts.length === 0 ? 'Tap the Start point (S)' : `Tap the next corner (${lab(pts.length)})`;
-    }
-    hint.textContent = t; hint.hidden = !t;
-  }
-  function renderSteps() {
-    const order = { camera: 0, calibrate: 1, measure: 2, result: 2 };
-    document.querySelectorAll('#steps span').forEach((s, i) => s.classList.toggle('on', i === order[step]));
-  }
-  const unitSelect = () => `<select id="unit" aria-label="Unit">${Object.keys(UNITS).map(u => `<option ${u === unit ? 'selected' : ''}>${u}</option>`).join('')}</select>`;
-
-  function renderPanel() {
-    if (step === 'camera') {
-      panel.innerHTML = `
-        ${camErr ? `<p class="err">${camErr}</p>` : ''}
-        <div class="row">
-          <button class="btn" data-act="gallery">Gallery</button>
-          ${camErr ? `<button class="btn primary big" data-act="snap">Take photo</button>`
-                   : `<button class="btn primary big" data-act="shoot">Capture</button>`}
-        </div>
-        <p class="note">Hold the phone straight above the surface. Keep a card, ruler or A4 sheet in the picture as a reference.</p>`;
-    } else if (step === 'calibrate') {
-      panel.innerHTML = `
-        <label class="fld"><span>Reference object</span>
-          <select id="preset">${PRESETS.map(p => `<option value="${p.id}" ${p.id === cal.presetId ? 'selected' : ''}>${p.label}</option>`).join('')}</select>
-        </label>
-        <div class="row" id="customBox" ${cal.presetId === 'custom' ? '' : 'hidden'}>
-          <input id="customVal" type="number" inputmode="decimal" min="0" step="any" placeholder="Length" value="${cal.customVal}" style="flex:1">
-          <select id="customUnit">${['mm', 'cm', 'm', 'in', 'ft'].map(u => `<option ${u === cal.customUnit ? 'selected' : ''}>${u}</option>`).join('')}</select>
-        </div>
-        <p class="note">Mark the two ends of the reference. It must lie on the same surface as what you measure, and the phone should face that surface straight on.</p>
-        <div class="row">
-          <button class="btn" data-act="calUndo" ${cal.pts.length ? '' : 'disabled'}>Undo</button>
-          <button class="btn primary" data-act="calDone" id="calDone" disabled>Start measuring</button>
-        </div>`;
-      updateCalBtn();
-    } else if (step === 'measure') {
-      panel.innerHTML = `
-        <div class="total"><span class="lbl">Total</span><span class="val" id="total">0</span></div>
-        <div class="chips" id="segs"></div>
-        <div class="row">
-          ${unitSelect()}
-          <label class="chk"><input type="checkbox" id="closeLoop" ${closeLoop ? 'checked' : ''}> Close loop</label>
-          <button class="btn ghost" data-act="recal" style="flex:0 0 auto;min-width:0">Rescale</button>
-        </div>
-        <div class="row">
-          <button class="btn" data-act="undo" id="undoBtn">Undo</button>
-          <button class="btn" data-act="clear" id="clearBtn">Clear</button>
-          <button class="btn primary" data-act="finish" id="finishBtn">Finish</button>
-        </div>`;
-      updateMeasureUI();
-    } else if (step === 'result') {
-      const sg = segments(), a = areaMm2();
-      panel.innerHTML = `
-        <div class="total"><span class="lbl">Total length</span><span class="val">${fmtLen(totalMm())}</span></div>
-        ${a ? `<div class="sub"><span>Area (closed loop)</span><b>${fmtArea(a)}</b></div>` : ''}
-        <div class="chips">${sg.map(s => `<span class="chip"><b>${lab(s.a)}→${lab(s.b)}</b> ${fmtLen(s.mm)}</span>`).join('')}</div>
-        <div class="row">${unitSelect()}
-          <button class="btn primary" data-act="save">Save image</button>
-          <button class="btn" data-act="copy">Copy</button>
-        </div>
-        <div class="row">
-          <button class="btn" data-act="edit">Edit points</button>
-          <button class="btn" data-act="newPhoto">New photo</button>
-        </div>`;
-    }
-  }
-  function updateMeasureUI() {
-    const segsEl = $('#segs'), totalEl = $('#total'); if (!segsEl) return;
-    const sg = segments();
-    totalEl.textContent = pts.length >= 2 ? fmtLen(totalMm()) : '0 ' + unit;
-    segsEl.innerHTML = sg.length
-      ? sg.map(s => `<span class="chip"><b>${lab(s.a)}→${lab(s.b)}</b> ${fmtLen(s.mm)}</span>`).join('')
-      : '<span class="muted">Tap points on the photo. Press and slide for a magnifier, release to place.</span>';
-    segsEl.scrollTop = segsEl.scrollHeight;
-    $('#undoBtn').disabled = !pts.length; $('#clearBtn').disabled = !pts.length; $('#finishBtn').disabled = pts.length < 2;
-  }
-  function refMm() {
-    if (cal.presetId !== 'custom') return PRESETS.find(p => p.id === cal.presetId).mm;
-    const v = parseFloat(cal.customVal);
-    return v > 0 ? v * UNITS[cal.customUnit] : 0;
-  }
-  function updateCalBtn() {
-    const b = $('#calDone'); if (!b) return;
-    b.disabled = !(cal.pts.length === 2 && dist(cal.pts[0], cal.pts[1]) > 8 && refMm() > 0);
-  }
-
-  function setStep(s) {
-    step = s; drag = null; temp = null; hideLoupe();
-    video.hidden = s !== 'camera'; cv.hidden = s === 'camera';
-    renderSteps(); renderPanel(); setHint();
-    if (photo && s !== 'camera') { fit(); draw(); }
-  }
-
-  /* ---------- actions ---------- */
-  function summaryText() {
-    const lines = segments().map(s => `${lab(s.a)} → ${lab(s.b)}: ${fmtLen(s.mm)}`);
-    lines.push('Total: ' + fmtLen(totalMm()));
-    const a = areaMm2(); if (a) lines.push('Area: ' + fmtArea(a));
-    return lines.join('\n');
-  }
-  async function saveImage() {
-    draw();
-    cv.toBlob(async blob => {
-      if (!blob) return;
-      const file = new File([blob], 'tapecam-measurement.png', { type: 'image/png' });
-      try {
-        if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: 'Measurement' }); return; }
-      } catch (e) { if (e && e.name === 'AbortError') return; }
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob); a.download = file.name; document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-      toast('Image saved');
-    }, 'image/png');
-  }
-  const actions = {
-    shoot: capture,
-    gallery: () => $('#fileGallery').click(),
-    snap: () => $('#fileCamera').click(),
-    calUndo: () => { cal.pts.pop(); afterChange(); },
-    calDone: () => {
-      if (!(cal.pts.length === 2)) return;
-      cal.mmpp = refMm() / dist(cal.pts[0], cal.pts[1]);
-      setStep('measure');
-    },
-    undo: () => { pts.pop(); afterChange(); },
-    clear: () => { pts.length = 0; afterChange(); },
-    finish: () => setStep('result'),
-    recal: () => { cal.pts.length = 0; cal.mmpp = 0; setStep('calibrate'); },
-    edit: () => setStep('measure'),
-    newPhoto: () => { photo = null; pts.length = 0; cal.pts.length = 0; setStep('camera'); startCam(); },
-    save: saveImage,
-    copy: async () => {
-      try { await navigator.clipboard.writeText(summaryText()); toast('Copied'); }
-      catch (_) { toast('Copy not allowed here'); }
-    }
   };
-  panel.addEventListener('click', e => {
-    const b = e.target.closest('[data-act]');
-    if (b && !b.disabled && actions[b.dataset.act]) actions[b.dataset.act]();
-  });
-  panel.addEventListener('change', e => {
-    const id = e.target.id;
-    if (id === 'preset') {
-      cal.presetId = e.target.value; $('#customBox').hidden = cal.presetId !== 'custom'; updateCalBtn();
-    } else if (id === 'customUnit') { cal.customUnit = e.target.value; updateCalBtn(); }
-    else if (id === 'unit') {
-      unit = e.target.value;
-      if (step === 'result') renderPanel(); else updateMeasureUI();
-      draw();
-    } else if (id === 'closeLoop') { closeLoop = e.target.checked; updateMeasureUI(); draw(); }
-  });
-  panel.addEventListener('input', e => {
-    if (e.target.id === 'customVal') { cal.customVal = e.target.value; updateCalBtn(); }
-  });
-  $('#fileGallery').addEventListener('change', e => { loadFile(e.target.files[0]); e.target.value = ''; });
-  $('#fileCamera').addEventListener('change', e => { loadFile(e.target.files[0]); e.target.value = ''; });
+  const name = (i, finished, n) => i === 0 ? 'Start' : (finished && i === n - 1 ? 'End' : String.fromCharCode(64 + ((i - 1) % 26 + 1)));
 
-  new ResizeObserver(() => { fit(); draw(); }).observe(stage);
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden) stopCam(); else if (step === 'camera') startCam();
-  });
-  window.addEventListener('pagehide', stopCam);
+  /* ---------- state ---------- */
+  let renderer, scene, camera, session = null, refSpace = null, hitSource = null;
+  let reticle, liveMesh;
+  const pts = [];            // THREE.Vector3 world positions (metres)
+  const meshes = [];         // marker spheres + segment cylinders
+  let hasHit = false, finished = false;
+  const cur = new THREE.Vector3();
+  const Y = new THREE.Vector3(0, 1, 0);
+  const matMark = () => new THREE.MeshBasicMaterial({ color: 0xffc933 });
 
-  setStep('camera');
-  startCam();
+  function init() {
+    scene = new THREE.Scene();
+    camera = new THREE.PerspectiveCamera();
+    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.xr.enabled = true;
+    renderer.setClearAlpha(0);
+    renderer.domElement.style.display = 'none';
+    document.body.appendChild(renderer.domElement);
+
+    reticle = new THREE.Mesh(
+      new THREE.RingGeometry(0.035, 0.05, 32).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: 0xffc933 })
+    );
+    reticle.matrixAutoUpdate = false; reticle.visible = false; scene.add(reticle);
+
+    liveMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.003, 0.003, 1, 8),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 }));
+    liveMesh.visible = false; scene.add(liveMesh);
+  }
+
+  function place(mesh, a, b) {
+    const len = a.distanceTo(b) || 1e-6;
+    mesh.position.copy(a).add(b).multiplyScalar(0.5);
+    mesh.quaternion.setFromUnitVectors(Y, b.clone().sub(a).normalize());
+    mesh.scale.set(1, len, 1);
+  }
+  function addPoint(p) {
+    const s = new THREE.Mesh(new THREE.SphereGeometry(0.012, 16, 12), matMark());
+    s.position.copy(p); scene.add(s); meshes.push(s);
+    if (pts.length) {
+      const c = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 1, 8), matMark());
+      place(c, pts[pts.length - 1], p); scene.add(c); meshes.push(c);
+    }
+    pts.push(p.clone());
+    try { navigator.vibrate && navigator.vibrate(25); } catch (_) {}
+  }
+  function clearAll() {
+    meshes.forEach(m => { scene.remove(m); m.geometry.dispose(); m.material.dispose(); });
+    meshes.length = 0; pts.length = 0; finished = false;
+  }
+  function removeLast() {
+    if (!pts.length) return;
+    pts.pop();
+    const s = meshes.pop(); scene.remove(s);
+    if (pts.length) { const c = meshes.pop(); scene.remove(c); }
+  }
+  const segs = () => { const o = []; for (let i = 1; i < pts.length; i++) o.push(pts[i - 1].distanceTo(pts[i])); return o; };
+  const total = () => segs().reduce((a, b) => a + b, 0);
+
+  /* ---------- labels projected onto the live camera view ---------- */
+  const pool = { pt: [], seg: [] };
+  function el(kind, i) {
+    if (!pool[kind][i]) {
+      const d = document.createElement('div'); d.className = 'tag';
+      const inner = document.createElement('div'); inner.className = kind === 'pt' ? 'pt' : 'seg';
+      d.appendChild(inner); tagsEl.appendChild(d); pool[kind][i] = { d, inner };
+    }
+    return pool[kind][i];
+  }
+  function hideRest(kind, from) { for (let i = from; i < pool[kind].length; i++) pool[kind][i].d.style.display = 'none'; }
+  const tmp = new THREE.Vector3();
+  function project(world, viewM, projM) {
+    tmp.copy(world).applyMatrix4(viewM);
+    if (tmp.z > -0.05) return null;        // behind the camera
+    tmp.applyMatrix4(projM);
+    if (Math.abs(tmp.x) > 1.3 || Math.abs(tmp.y) > 1.3) return null;
+    return { x: (tmp.x * 0.5 + 0.5) * window.innerWidth, y: (1 - (tmp.y * 0.5 + 0.5)) * window.innerHeight };
+  }
+  function updateLabels(view) {
+    const viewM = new THREE.Matrix4().fromArray(view.transform.inverse.matrix);
+    const projM = new THREE.Matrix4().fromArray(view.projectionMatrix);
+    pts.forEach((p, i) => {
+      const e = el('pt', i), s = project(p, viewM, projM);
+      if (!s) { e.d.style.display = 'none'; return; }
+      e.d.style.display = ''; e.d.style.transform = `translate(${s.x}px,${s.y}px)`;
+      e.inner.textContent = name(i, finished, pts.length);
+    });
+    hideRest('pt', pts.length);
+    let k = 0;
+    const list = [];
+    for (let i = 1; i < pts.length; i++) list.push([pts[i - 1], pts[i], false]);
+    if (!finished && pts.length && hasHit) list.push([pts[pts.length - 1], cur, true]);
+    list.forEach(([a, b, live]) => {
+      const e = el('seg', k++), mid = a.clone().add(b).multiplyScalar(0.5), s = project(mid, viewM, projM);
+      if (!s) { e.d.style.display = 'none'; return; }
+      e.d.style.display = ''; e.d.style.transform = `translate(${s.x}px,${s.y}px)`;
+      e.inner.className = 'seg' + (live ? ' live' : '');
+      e.inner.textContent = fmt(a.distanceTo(b));
+    });
+    hideRest('seg', k);
+  }
+
+  /* ---------- AR loop ---------- */
+  function onFrame(t, frame) {
+    if (frame && session) {
+      if (hitSource) {
+        const r = frame.getHitTestResults(hitSource);
+        if (r.length) {
+          const p = r[0].getPose(refSpace);
+          if (p) {
+            reticle.visible = !finished; reticle.matrix.fromArray(p.transform.matrix);
+            cur.set(p.transform.position.x, p.transform.position.y, p.transform.position.z);
+            hasHit = true;
+          }
+        } else { reticle.visible = false; hasHit = false; }
+      }
+      if (!finished && pts.length && hasHit) {
+        liveMesh.visible = true; place(liveMesh, pts[pts.length - 1], cur);
+      } else liveMesh.visible = false;
+      const pose = frame.getViewerPose(refSpace);
+      if (pose && pose.views[0]) updateLabels(pose.views[0]);
+      updateHud();
+    }
+    renderer.render(scene, camera);
+  }
+  function updateHud() {
+    totalEl.textContent = fmt(total());
+    let h;
+    if (finished) h = 'Measurement mudinjadhu';
+    else if (!hasHit) h = 'Phone-a nagathi surface-a scan pannunga';
+    else if (!pts.length) h = 'Start idathula screen-a tap pannunga';
+    else h = `Adutha corner-la tap pannunga (${name(pts.length, false, 0)})`;
+    hint.textContent = h;
+  }
+
+  function onSelect() {
+    if (finished || !hasHit) return;
+    addPoint(cur);
+  }
+  function finish() {
+    if (pts.length < 2) { hint.textContent = 'Kuraindhadhu 2 point venum'; return; }
+    finished = true; liveMesh.visible = false; reticle.visible = false;
+    bar.hidden = true; resultEl.hidden = false; renderResult();
+  }
+  function renderResult() {
+    $('#rTotal').textContent = fmt(total());
+    $('#rUnit').textContent = unit;
+    $('#rChips').innerHTML = segs().map((m, i) =>
+      `<span class="chip"><b>${name(i, true, pts.length)}→${name(i + 1, true, pts.length)}</b> ${fmt(m)}</span>`).join('');
+  }
+  function summary() {
+    const l = segs().map((m, i) => `${name(i, true, pts.length)} → ${name(i + 1, true, pts.length)}: ${fmt(m)}`);
+    l.push('Total: ' + fmt(total())); return l.join('\n');
+  }
+  function cycleUnit() { unit = UNITS[(UNITS.indexOf(unit) + 1) % UNITS.length]; $('#unit').textContent = unit; $('#rUnit').textContent = unit; if (finished) renderResult(); }
+
+  async function startAR() {
+    msg.textContent = '';
+    try {
+      session = await navigator.xr.requestSession('immersive-ar', {
+        requiredFeatures: ['hit-test'],
+        optionalFeatures: ['dom-overlay'],
+        domOverlay: { root: overlay }
+      });
+    } catch (e) { msg.textContent = 'AR start aagala: ' + (e.message || e); return; }
+    renderer.xr.setReferenceSpaceType('local');
+    await renderer.xr.setSession(session);
+    refSpace = renderer.xr.getReferenceSpace();
+    const viewer = await session.requestReferenceSpace('viewer');
+    hitSource = await session.requestHitTestSource({ space: viewer });
+    session.addEventListener('select', onSelect);
+    session.addEventListener('end', () => {
+      session = null; hitSource = null; hud.hidden = true; startEl.hidden = false;
+      renderer.domElement.style.display = 'none'; clearAll();
+    });
+    clearAll(); finished = false; bar.hidden = false; resultEl.hidden = true;
+    hud.hidden = false; startEl.hidden = true;
+    renderer.setAnimationLoop(onFrame);
+  }
+
+  // taps on buttons must not place points
+  [bar, resultEl].forEach(n => n.addEventListener('beforexrselect', e => e.preventDefault()));
+  $('#undo').addEventListener('click', () => { removeLast(); });
+  $('#unit').addEventListener('click', cycleUnit);
+  $('#rUnit').addEventListener('click', cycleUnit);
+  $('#finish').addEventListener('click', finish);
+  $('#rBack').addEventListener('click', () => { finished = false; resultEl.hidden = true; bar.hidden = false; });
+  $('#rNew').addEventListener('click', () => { clearAll(); resultEl.hidden = true; bar.hidden = false; });
+  $('#rCopy').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(summary()); $('#rCopy').textContent = 'Copied'; }
+    catch (_) { $('#rCopy').textContent = 'Copy aagala'; }
+    setTimeout(() => { $('#rCopy').textContent = 'Copy'; }, 1500);
+  });
+  goBtn.addEventListener('click', startAR);
+
+  /* ---------- support check ---------- */
+  (async () => {
+    if (!window.THREE) { msg.textContent = 'Page load aagala. Internet check pannunga.'; return; }
+    init();
+    if (!navigator.xr) { msg.textContent = 'Indha browser-la AR illa. Android Chrome-la thorandhu paarunga (iPhone-la work aagadhu).'; return; }
+    try {
+      const ok = await navigator.xr.isSessionSupported('immersive-ar');
+      if (ok) goBtn.disabled = false;
+      else msg.textContent = 'Indha phone-la AR (ARCore) support illa, illana Google Play Services for AR install pannanum.';
+    } catch (e) { msg.textContent = 'AR check fail: ' + (e.message || e); }
+  })();
 })();
 </script>
 </body>
