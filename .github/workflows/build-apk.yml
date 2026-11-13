@@ -390,6 +390,10 @@ jobs:
 
               companion object {
                   private const val CAMERA_REQUEST = 1
+
+                  // Points farther than WARN are accepted but flagged; farther than MAX are rejected.
+                  private const val WARN_HIT_DISTANCE = 5f
+                  private const val MAX_HIT_DISTANCE = 25f
               }
 
               private var session: Session? = null
@@ -682,9 +686,12 @@ jobs:
                           toast("No surface found there. Move slowly / closer and tap again.")
                           continue
                       }
-                      if (hit.distance > 5f) {
-                          toast("That point is too far (%.1f m). Move within 5 m and tap again.".format(Locale.US, hit.distance))
+                      if (hit.distance > MAX_HIT_DISTANCE) {
+                          toast("That point is too far (%.0f m). Move closer and tap again.".format(Locale.US, hit.distance))
                           continue
+                      }
+                      if (hit.distance > WARN_HIT_DISTANCE) {
+                          toast("Far point (%.1f m): less accurate. Add a point every 3-4 m for a better result.".format(Locale.US, hit.distance))
                       }
                       points.add(MeasurePoint(hit.createAnchor(), labelFor(points.size)))
                   }
@@ -735,15 +742,23 @@ jobs:
                   btnFlash.text = if (hasFlash) "Flash: " + flashSetting.label else "Flash: n/a"
               }
 
-              /** Prefers a detected plane, then a depth point, then a feature point (least reliable). */
+              /**
+               * Prefers a detected plane (exact polygon first, then its bounding box so far-away parts of a
+               * long wall still work), then a depth point, then a feature point (least reliable).
+               */
               private fun pickHit(frame: Frame, x: Float, y: Float): HitResult? {
                   var plane: HitResult? = null
+                  var planeExtent: HitResult? = null
                   var depth: HitResult? = null
                   var feature: HitResult? = null
                   for (hit in frame.hitTest(x, y)) {
                       val t = hit.trackable
                       if (t is Plane) {
-                          if (plane == null && t.isPoseInPolygon(hit.hitPose)) plane = hit
+                          if (plane == null && t.isPoseInPolygon(hit.hitPose)) {
+                              plane = hit
+                          } else if (planeExtent == null && t.isPoseInExtents(hit.hitPose)) {
+                              planeExtent = hit
+                          }
                       } else if (t is DepthPoint) {
                           if (depth == null) depth = hit
                       } else if (t is ArPoint) {
@@ -752,7 +767,7 @@ jobs:
                           }
                       }
                   }
-                  return plane ?: depth ?: feature
+                  return plane ?: planeExtent ?: depth ?: feature
               }
 
               private fun failureHint(camera: Camera): String {
