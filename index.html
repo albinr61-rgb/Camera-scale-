@@ -1,0 +1,535 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#0e1013">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>TapeCam</title>
+<style>
+  /* Layout: full-height phone app. Header, photo stage (flex), bottom control panel with a tape-measure tick edge. */
+  :root{
+    --bg:#0e1013; --panel:#171a1f; --line:#2a2f37; --fg:#eef1f4; --mute:#98a1ad;
+    --tape:#ffc933; --tape-ink:#1b1400; --cal:#6df0a8; --danger:#ff6b6b;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    color-scheme:dark;
+  }
+  *{box-sizing:border-box}
+  [hidden]{display:none!important}
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font:15px/1.4 var(--sans);
+    overscroll-behavior:none;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+  #app{height:100%;height:100dvh;display:flex;flex-direction:column;
+    padding-top:env(safe-area-inset-top);
+    padding-left:max(0px,env(safe-area-inset-left));padding-right:max(0px,env(safe-area-inset-right))}
+  header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px}
+  .brand{font-weight:800;letter-spacing:.04em}
+  .brand i{font-style:normal;color:var(--tape)}
+  .steps{display:flex;gap:6px}
+  .steps span{font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding:4px 9px;border-radius:999px;
+    border:1px solid var(--line);color:var(--mute)}
+  .steps span.on{background:var(--tape);color:var(--tape-ink);border-color:var(--tape);font-weight:700}
+
+  #stage{position:relative;flex:1;min-height:0;background:#000;overflow:hidden}
+  #video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000}
+  #photo{position:absolute;touch-action:none;cursor:crosshair}
+  #hint{position:absolute;top:10px;left:50%;transform:translateX(-50%);max-width:calc(100% - 32px);
+    background:rgba(14,16,19,.82);border:1px solid var(--line);color:var(--fg);padding:7px 14px;border-radius:999px;
+    font-size:13px;font-weight:600;text-align:center;pointer-events:none;backdrop-filter:blur(6px)}
+  #loupe{position:absolute;top:58px;width:120px;height:120px;border-radius:50%;border:2px solid var(--tape);
+    box-shadow:0 4px 18px rgba(0,0,0,.6);pointer-events:none;background:#000}
+  #toast{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);background:var(--tape);color:var(--tape-ink);
+    font-weight:700;font-size:13px;padding:7px 14px;border-radius:999px;pointer-events:none}
+
+  #panel{position:relative;background:var(--panel);border-top:1px solid var(--line);
+    padding:20px 16px calc(14px + env(safe-area-inset-bottom));max-height:46vh;overflow:auto;
+    display:flex;flex-direction:column;gap:12px}
+  #panel::before{content:"";position:absolute;left:0;right:0;top:0;height:7px;
+    background:repeating-linear-gradient(90deg,#3a414b 0 1px,transparent 1px 8px)}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .row>.btn{flex:1 1 0;min-width:96px}
+  .btn{min-height:46px;border-radius:12px;border:1px solid var(--line);background:#20252c;color:var(--fg);
+    font:inherit;font-weight:700;padding:0 16px;cursor:pointer}
+  .btn:active{transform:scale(.98)}
+  .btn.primary{background:var(--tape);color:var(--tape-ink);border-color:var(--tape)}
+  .btn.big{min-height:54px;font-size:16px}
+  .btn.ghost{background:transparent}
+  .btn:disabled{opacity:.38;cursor:default}
+  .btn:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--tape);outline-offset:2px}
+  select,input[type=number]{min-height:44px;border-radius:10px;border:1px solid var(--line);background:#20252c;color:var(--fg);
+    font:inherit;padding:0 10px;min-width:0}
+  .fld{display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--mute);letter-spacing:.04em;text-transform:uppercase}
+  .fld select{font-size:15px;text-transform:none;letter-spacing:0;color:var(--fg)}
+  .note{margin:0;font-size:13px;color:var(--mute)}
+  .muted{color:var(--mute);font-size:13px}
+  .total{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+  .total .lbl{font-size:12px;color:var(--mute);letter-spacing:.08em;text-transform:uppercase}
+  .total .val{font:700 32px/1.1 var(--mono);color:var(--tape);font-variant-numeric:tabular-nums}
+  .sub{display:flex;justify-content:space-between;font-size:14px;color:var(--mute)}
+  .sub b{font-family:var(--mono);color:var(--fg);font-variant-numeric:tabular-nums}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;max-height:92px;overflow:auto}
+  .chip{font:13px var(--mono);background:#20252c;border:1px solid var(--line);border-radius:8px;padding:4px 8px;
+    font-variant-numeric:tabular-nums;white-space:nowrap}
+  .chip b{color:var(--tape);font-weight:700}
+  .chk{display:flex;align-items:center;gap:8px;font-weight:600;min-height:44px;padding:0 4px}
+  .chk input{width:20px;height:20px;accent-color:var(--tape)}
+  .err{color:var(--danger);font-size:13px;margin:0}
+  @media (prefers-reduced-motion:reduce){.btn:active{transform:none}}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="brand">Tape<i>Cam</i></div>
+    <div class="steps" id="steps">
+      <span data-s="camera">Capture</span><span data-s="calibrate">Scale</span><span data-s="measure">Measure</span>
+    </div>
+  </header>
+
+  <main id="stage">
+    <video id="video" playsinline muted autoplay></video>
+    <canvas id="photo" hidden></canvas>
+    <div id="hint"></div>
+    <canvas id="loupe" hidden></canvas>
+    <div id="toast" hidden></div>
+  </main>
+
+  <section id="panel" aria-live="polite"></section>
+</div>
+
+<input type="file" id="fileGallery" accept="image/*" hidden>
+<input type="file" id="fileCamera" accept="image/*" capture="environment" hidden>
+
+<script>
+(() => {
+  const $ = s => document.querySelector(s);
+  const video = $('#video'), cv = $('#photo'), ctx = cv.getContext('2d');
+  const stage = $('#stage'), hint = $('#hint'), panel = $('#panel');
+  const loupe = $('#loupe'), lctx = loupe.getContext('2d'), toastEl = $('#toast');
+
+  const UNITS = { mm: 1, cm: 10, m: 1000, in: 25.4, ft: 304.8 };
+  const PRESETS = [
+    { id: 'card', label: 'Bank / ID card, long side (85.6 mm)', mm: 85.6 },
+    { id: 'a4l', label: 'A4 paper, long side (297 mm)', mm: 297 },
+    { id: 'a4s', label: 'A4 paper, short side (210 mm)', mm: 210 },
+    { id: 'custom', label: 'My own known length...', mm: 0 }
+  ];
+  const C = { tape: '#ffc933', ink: '#1b1400', dark: 'rgba(14,16,19,.85)', cal: '#6df0a8' };
+  const MONO = 'ui-monospace,SFMono-Regular,Menlo,Consolas,monospace';
+
+  let step = 'camera', stream = null, camErr = '', photo = null;
+  const cal = { pts: [], mmpp: 0, presetId: 'card', customVal: '', customUnit: 'cm' };
+  const pts = [];
+  let temp = null, drag = null, unit = 'cm', closeLoop = false, disp = 1, toastT = 0;
+
+  /* ---------- helpers ---------- */
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  function lab(i) {
+    if (i === 0) return 'S';
+    let n = i - 1, s = '';
+    do { s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26) - 1; } while (n >= 0);
+    return s;
+  }
+  function fmtLen(mm) {
+    const v = mm / UNITS[unit];
+    const d = unit === 'mm' ? (v < 100 ? 1 : 0) : unit === 'cm' ? 1 : 2;
+    return v.toFixed(d) + ' ' + unit;
+  }
+  function fmtArea(mm2) {
+    const f = UNITS[unit], v = mm2 / (f * f);
+    const d = unit === 'mm' ? 0 : unit === 'cm' ? 1 : 2;
+    return v.toFixed(d) + ' ' + unit + '²';
+  }
+  function toast(msg) {
+    toastEl.textContent = msg; toastEl.hidden = false;
+    clearTimeout(toastT); toastT = setTimeout(() => { toastEl.hidden = true; }, 1800);
+  }
+  const curArr = () => (step === 'calibrate' ? cal.pts : pts);
+  const listOf = A => (temp && drag && drag.mode === 'new' && drag.arr === A ? A.concat([temp]) : A);
+
+  function segments() {
+    const out = [], n = pts.length;
+    for (let i = 1; i < n; i++) out.push({ a: i - 1, b: i, mm: dist(pts[i - 1], pts[i]) * cal.mmpp });
+    if (closeLoop && n >= 3) out.push({ a: n - 1, b: 0, mm: dist(pts[n - 1], pts[0]) * cal.mmpp });
+    return out;
+  }
+  const totalMm = () => segments().reduce((s, x) => s + x.mm, 0);
+  function areaMm2() {
+    const n = pts.length; if (!(closeLoop && n >= 3)) return 0;
+    let a = 0;
+    for (let i = 0; i < n; i++) { const p = pts[i], q = pts[(i + 1) % n]; a += p.x * q.y - q.x * p.y; }
+    return Math.abs(a / 2) * cal.mmpp * cal.mmpp;
+  }
+
+  /* ---------- camera ---------- */
+  function stopCam() {
+    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+    video.srcObject = null;
+  }
+  async function startCam() {
+    stopCam();
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      camErr = 'Live camera needs a secure page (https). Use "Take photo" instead.';
+      renderPanel(); return;
+    }
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1440 } },
+        audio: false
+      });
+      video.srcObject = stream;
+      await video.play().catch(() => {});
+      camErr = '';
+    } catch (e) {
+      camErr = 'Camera is blocked or not available. Allow camera access, or use "Take photo".';
+    }
+    if (step === 'camera') renderPanel();
+  }
+  function capture() {
+    const vw = video.videoWidth, vh = video.videoHeight;
+    if (!vw || !vh) { toast('Camera not ready yet'); return; }
+    setPhoto(video, vw, vh);
+  }
+  function setPhoto(src, w, h) {
+    const k = Math.min(1, 2000 / Math.max(w, h));
+    const off = document.createElement('canvas');
+    off.width = Math.round(w * k); off.height = Math.round(h * k);
+    off.getContext('2d').drawImage(src, 0, 0, off.width, off.height);
+    photo = off; cv.width = off.width; cv.height = off.height;
+    cal.pts.length = 0; pts.length = 0; cal.mmpp = 0; closeLoop = false; temp = null; drag = null;
+    stopCam();
+    setStep('calibrate');
+  }
+  async function loadFile(file) {
+    if (!file) return;
+    try {
+      let bmp;
+      try { bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }); }
+      catch (_) {
+        bmp = await new Promise((res, rej) => {
+          const im = new Image(), url = URL.createObjectURL(file);
+          im.onload = () => res(im); im.onerror = rej; im.src = url;
+        });
+      }
+      setPhoto(bmp, bmp.width, bmp.height);
+    } catch (e) { toast('Could not open that photo'); }
+  }
+
+  /* ---------- drawing ---------- */
+  function fit() {
+    if (!photo) return;
+    const sw = stage.clientWidth, sh = stage.clientHeight;
+    const s = Math.min(sw / photo.width, sh / photo.height);
+    disp = s;
+    const w = photo.width * s, h = photo.height * s;
+    cv.style.width = w + 'px'; cv.style.height = h + 'px';
+    cv.style.left = (sw - w) / 2 + 'px'; cv.style.top = (sh - h) / 2 + 'px';
+  }
+  function circle(p, r) { ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); }
+  function pill(x, y, text, u, big) {
+    ctx.save();
+    ctx.font = `700 ${(big ? 18 : 13) * u}px ${MONO}`;
+    const w = ctx.measureText(text).width + (big ? 24 : 14) * u, h = (big ? 32 : 21) * u;
+    ctx.fillStyle = C.dark; ctx.beginPath();
+    ctx.roundRect ? ctx.roundRect(x - w / 2, y - h / 2, w, h, h / 2) : ctx.rect(x - w / 2, y - h / 2, w, h);
+    ctx.fill();
+    ctx.fillStyle = C.tape; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(text, x, y + 1 * u);
+    ctx.restore();
+  }
+  function draw() {
+    if (!photo) return;
+    const W = cv.width, H = cv.height, u = 1 / disp;
+    ctx.clearRect(0, 0, W, H);
+    ctx.drawImage(photo, 0, 0);
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+
+    // reference line
+    const cp = listOf(cal.pts);
+    if (cp.length) {
+      ctx.save();
+      ctx.globalAlpha = step === 'calibrate' ? 1 : 0.6;
+      if (cp.length === 2) {
+        ctx.strokeStyle = C.dark; ctx.lineWidth = 6 * u; ctx.beginPath(); ctx.moveTo(cp[0].x, cp[0].y); ctx.lineTo(cp[1].x, cp[1].y); ctx.stroke();
+        ctx.strokeStyle = C.cal; ctx.lineWidth = 2.5 * u; ctx.setLineDash([9 * u, 6 * u]);
+        ctx.beginPath(); ctx.moveTo(cp[0].x, cp[0].y); ctx.lineTo(cp[1].x, cp[1].y); ctx.stroke(); ctx.setLineDash([]);
+      }
+      cp.forEach(p => {
+        circle(p, 9 * u); ctx.fillStyle = C.cal; ctx.fill(); ctx.lineWidth = 2.5 * u; ctx.strokeStyle = C.dark; ctx.stroke();
+      });
+      ctx.restore();
+    }
+
+    // measurement path
+    if (step === 'measure' || step === 'result') {
+      const mp = listOf(pts), n = mp.length;
+      const closed = closeLoop && n >= 3;
+      if (n >= 2) {
+        ctx.beginPath(); ctx.moveTo(mp[0].x, mp[0].y);
+        for (let i = 1; i < n; i++) ctx.lineTo(mp[i].x, mp[i].y);
+        if (closed) { ctx.closePath(); ctx.fillStyle = 'rgba(255,201,51,.16)'; ctx.fill(); }
+        ctx.strokeStyle = C.dark; ctx.lineWidth = 7 * u; ctx.stroke();
+        ctx.strokeStyle = C.tape; ctx.lineWidth = 3 * u; ctx.stroke();
+        // segment labels
+        for (let i = 1; i <= (closed ? n : n - 1); i++) {
+          const a = mp[i - 1], b = mp[i % n];
+          const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
+          let nx = -dy / len, ny = dx / len; if (ny > 0) { nx = -nx; ny = -ny; }
+          pill((a.x + b.x) / 2 + nx * 17 * u, (a.y + b.y) / 2 + ny * 17 * u, fmtLen(len * cal.mmpp), u, false);
+        }
+      }
+      mp.forEach((p, i) => {
+        circle(p, 12 * u); ctx.fillStyle = C.tape; ctx.fill(); ctx.lineWidth = 2.5 * u; ctx.strokeStyle = C.dark; ctx.stroke();
+        ctx.fillStyle = C.ink; ctx.font = `800 ${12 * u}px ${MONO}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(lab(i), p.x, p.y + 1 * u);
+      });
+      if (step === 'result' && n >= 2) {
+        ctx.font = `700 ${18 * u}px ${MONO}`;
+        const t = 'Total ' + fmtLen(totalMm());
+        const w = ctx.measureText(t).width + 24 * u;
+        pill(16 * u + w / 2, H - 28 * u, t, u, true);
+      }
+    }
+  }
+
+  /* ---------- loupe ---------- */
+  function showLoupe(p, e) {
+    const r = stage.getBoundingClientRect(), x = e.clientX - r.left;
+    const leftSide = x > r.width / 2;
+    loupe.style.left = leftSide ? '12px' : 'auto';
+    loupe.style.right = leftSide ? 'auto' : '12px';
+    loupe.hidden = false;
+    const S = 120, dpr = window.devicePixelRatio || 1;
+    if (loupe.width !== S * dpr) { loupe.width = S * dpr; loupe.height = S * dpr; }
+    lctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    lctx.fillStyle = '#000'; lctx.fillRect(0, 0, S, S);
+    const src = S / 3 / disp;
+    try { lctx.drawImage(photo, p.x - src / 2, p.y - src / 2, src, src, 0, 0, S, S); } catch (_) {}
+    lctx.strokeStyle = C.tape; lctx.lineWidth = 1.5; lctx.beginPath();
+    const c = S / 2;
+    lctx.moveTo(c - 16, c); lctx.lineTo(c - 4, c); lctx.moveTo(c + 4, c); lctx.lineTo(c + 16, c);
+    lctx.moveTo(c, c - 16); lctx.lineTo(c, c - 4); lctx.moveTo(c, c + 4); lctx.lineTo(c, c + 16);
+    lctx.stroke();
+  }
+  const hideLoupe = () => { loupe.hidden = true; };
+
+  /* ---------- pointer input: press, slide to fine-tune, release to place ---------- */
+  function toImg(e) {
+    const r = cv.getBoundingClientRect();
+    const x = (e.clientX - r.left) * (cv.width / r.width), y = (e.clientY - r.top) * (cv.height / r.height);
+    return { x: Math.max(0, Math.min(cv.width, x)), y: Math.max(0, Math.min(cv.height, y)) };
+  }
+  cv.addEventListener('pointerdown', e => {
+    if (!photo || (step !== 'calibrate' && step !== 'measure')) return;
+    e.preventDefault();
+    cv.setPointerCapture(e.pointerId);
+    const p = toImg(e), arr = curArr(), hitR = 26 / disp;
+    let hit = -1, best = hitR;
+    arr.forEach((q, i) => { const d = dist(p, q); if (d < best) { best = d; hit = i; } });
+    if (hit >= 0) drag = { mode: 'move', arr, idx: hit };
+    else if (step === 'calibrate' && arr.length >= 2) { drag = null; return; }
+    else { drag = { mode: 'new', arr }; temp = p; }
+    if (drag.mode === 'move') arr[hit] = p;
+    showLoupe(p, e); draw();
+  });
+  cv.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const p = toImg(e);
+    if (drag.mode === 'move') drag.arr[drag.idx] = p; else temp = p;
+    showLoupe(p, e); draw();
+  });
+  function endDrag(commit) {
+    if (!drag) return;
+    if (drag.mode === 'new' && commit && temp) drag.arr.push(temp);
+    drag = null; temp = null; hideLoupe();
+    afterChange();
+  }
+  cv.addEventListener('pointerup', () => endDrag(true));
+  cv.addEventListener('pointercancel', () => endDrag(false));
+
+  function afterChange() {
+    setHint();
+    if (step === 'calibrate') { updateCalBtn(); const u = $('[data-act="calUndo"]'); if (u) u.disabled = !cal.pts.length; }
+    if (step === 'measure') updateMeasureUI();
+    draw();
+  }
+
+  /* ---------- UI: hint + panels ---------- */
+  function setHint() {
+    let t = '';
+    if (step === 'camera') t = 'Point at the object, then tap Capture';
+    else if (step === 'calibrate') {
+      t = cal.pts.length === 0 ? 'Tap one end of your reference object'
+        : cal.pts.length === 1 ? 'Tap the other end of the reference'
+        : 'Drag the ends to fine-tune, then pick its length';
+    } else if (step === 'measure') {
+      t = pts.length === 0 ? 'Tap the Start point (S)' : `Tap the next corner (${lab(pts.length)})`;
+    }
+    hint.textContent = t; hint.hidden = !t;
+  }
+  function renderSteps() {
+    const order = { camera: 0, calibrate: 1, measure: 2, result: 2 };
+    document.querySelectorAll('#steps span').forEach((s, i) => s.classList.toggle('on', i === order[step]));
+  }
+  const unitSelect = () => `<select id="unit" aria-label="Unit">${Object.keys(UNITS).map(u => `<option ${u === unit ? 'selected' : ''}>${u}</option>`).join('')}</select>`;
+
+  function renderPanel() {
+    if (step === 'camera') {
+      panel.innerHTML = `
+        ${camErr ? `<p class="err">${camErr}</p>` : ''}
+        <div class="row">
+          <button class="btn" data-act="gallery">Gallery</button>
+          ${camErr ? `<button class="btn primary big" data-act="snap">Take photo</button>`
+                   : `<button class="btn primary big" data-act="shoot">Capture</button>`}
+        </div>
+        <p class="note">Hold the phone straight above the surface. Keep a card, ruler or A4 sheet in the picture as a reference.</p>`;
+    } else if (step === 'calibrate') {
+      panel.innerHTML = `
+        <label class="fld"><span>Reference object</span>
+          <select id="preset">${PRESETS.map(p => `<option value="${p.id}" ${p.id === cal.presetId ? 'selected' : ''}>${p.label}</option>`).join('')}</select>
+        </label>
+        <div class="row" id="customBox" ${cal.presetId === 'custom' ? '' : 'hidden'}>
+          <input id="customVal" type="number" inputmode="decimal" min="0" step="any" placeholder="Length" value="${cal.customVal}" style="flex:1">
+          <select id="customUnit">${['mm', 'cm', 'm', 'in', 'ft'].map(u => `<option ${u === cal.customUnit ? 'selected' : ''}>${u}</option>`).join('')}</select>
+        </div>
+        <p class="note">Mark the two ends of the reference. It must lie on the same surface as what you measure, and the phone should face that surface straight on.</p>
+        <div class="row">
+          <button class="btn" data-act="calUndo" ${cal.pts.length ? '' : 'disabled'}>Undo</button>
+          <button class="btn primary" data-act="calDone" id="calDone" disabled>Start measuring</button>
+        </div>`;
+      updateCalBtn();
+    } else if (step === 'measure') {
+      panel.innerHTML = `
+        <div class="total"><span class="lbl">Total</span><span class="val" id="total">0</span></div>
+        <div class="chips" id="segs"></div>
+        <div class="row">
+          ${unitSelect()}
+          <label class="chk"><input type="checkbox" id="closeLoop" ${closeLoop ? 'checked' : ''}> Close loop</label>
+          <button class="btn ghost" data-act="recal" style="flex:0 0 auto;min-width:0">Rescale</button>
+        </div>
+        <div class="row">
+          <button class="btn" data-act="undo" id="undoBtn">Undo</button>
+          <button class="btn" data-act="clear" id="clearBtn">Clear</button>
+          <button class="btn primary" data-act="finish" id="finishBtn">Finish</button>
+        </div>`;
+      updateMeasureUI();
+    } else if (step === 'result') {
+      const sg = segments(), a = areaMm2();
+      panel.innerHTML = `
+        <div class="total"><span class="lbl">Total length</span><span class="val">${fmtLen(totalMm())}</span></div>
+        ${a ? `<div class="sub"><span>Area (closed loop)</span><b>${fmtArea(a)}</b></div>` : ''}
+        <div class="chips">${sg.map(s => `<span class="chip"><b>${lab(s.a)}→${lab(s.b)}</b> ${fmtLen(s.mm)}</span>`).join('')}</div>
+        <div class="row">${unitSelect()}
+          <button class="btn primary" data-act="save">Save image</button>
+          <button class="btn" data-act="copy">Copy</button>
+        </div>
+        <div class="row">
+          <button class="btn" data-act="edit">Edit points</button>
+          <button class="btn" data-act="newPhoto">New photo</button>
+        </div>`;
+    }
+  }
+  function updateMeasureUI() {
+    const segsEl = $('#segs'), totalEl = $('#total'); if (!segsEl) return;
+    const sg = segments();
+    totalEl.textContent = pts.length >= 2 ? fmtLen(totalMm()) : '0 ' + unit;
+    segsEl.innerHTML = sg.length
+      ? sg.map(s => `<span class="chip"><b>${lab(s.a)}→${lab(s.b)}</b> ${fmtLen(s.mm)}</span>`).join('')
+      : '<span class="muted">Tap points on the photo. Press and slide for a magnifier, release to place.</span>';
+    segsEl.scrollTop = segsEl.scrollHeight;
+    $('#undoBtn').disabled = !pts.length; $('#clearBtn').disabled = !pts.length; $('#finishBtn').disabled = pts.length < 2;
+  }
+  function refMm() {
+    if (cal.presetId !== 'custom') return PRESETS.find(p => p.id === cal.presetId).mm;
+    const v = parseFloat(cal.customVal);
+    return v > 0 ? v * UNITS[cal.customUnit] : 0;
+  }
+  function updateCalBtn() {
+    const b = $('#calDone'); if (!b) return;
+    b.disabled = !(cal.pts.length === 2 && dist(cal.pts[0], cal.pts[1]) > 8 && refMm() > 0);
+  }
+
+  function setStep(s) {
+    step = s; drag = null; temp = null; hideLoupe();
+    video.hidden = s !== 'camera'; cv.hidden = s === 'camera';
+    renderSteps(); renderPanel(); setHint();
+    if (photo && s !== 'camera') { fit(); draw(); }
+  }
+
+  /* ---------- actions ---------- */
+  function summaryText() {
+    const lines = segments().map(s => `${lab(s.a)} → ${lab(s.b)}: ${fmtLen(s.mm)}`);
+    lines.push('Total: ' + fmtLen(totalMm()));
+    const a = areaMm2(); if (a) lines.push('Area: ' + fmtArea(a));
+    return lines.join('\n');
+  }
+  async function saveImage() {
+    draw();
+    cv.toBlob(async blob => {
+      if (!blob) return;
+      const file = new File([blob], 'tapecam-measurement.png', { type: 'image/png' });
+      try {
+        if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: 'Measurement' }); return; }
+      } catch (e) { if (e && e.name === 'AbortError') return; }
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = file.name; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+      toast('Image saved');
+    }, 'image/png');
+  }
+  const actions = {
+    shoot: capture,
+    gallery: () => $('#fileGallery').click(),
+    snap: () => $('#fileCamera').click(),
+    calUndo: () => { cal.pts.pop(); afterChange(); },
+    calDone: () => {
+      if (!(cal.pts.length === 2)) return;
+      cal.mmpp = refMm() / dist(cal.pts[0], cal.pts[1]);
+      setStep('measure');
+    },
+    undo: () => { pts.pop(); afterChange(); },
+    clear: () => { pts.length = 0; afterChange(); },
+    finish: () => setStep('result'),
+    recal: () => { cal.pts.length = 0; cal.mmpp = 0; setStep('calibrate'); },
+    edit: () => setStep('measure'),
+    newPhoto: () => { photo = null; pts.length = 0; cal.pts.length = 0; setStep('camera'); startCam(); },
+    save: saveImage,
+    copy: async () => {
+      try { await navigator.clipboard.writeText(summaryText()); toast('Copied'); }
+      catch (_) { toast('Copy not allowed here'); }
+    }
+  };
+  panel.addEventListener('click', e => {
+    const b = e.target.closest('[data-act]');
+    if (b && !b.disabled && actions[b.dataset.act]) actions[b.dataset.act]();
+  });
+  panel.addEventListener('change', e => {
+    const id = e.target.id;
+    if (id === 'preset') {
+      cal.presetId = e.target.value; $('#customBox').hidden = cal.presetId !== 'custom'; updateCalBtn();
+    } else if (id === 'customUnit') { cal.customUnit = e.target.value; updateCalBtn(); }
+    else if (id === 'unit') {
+      unit = e.target.value;
+      if (step === 'result') renderPanel(); else updateMeasureUI();
+      draw();
+    } else if (id === 'closeLoop') { closeLoop = e.target.checked; updateMeasureUI(); draw(); }
+  });
+  panel.addEventListener('input', e => {
+    if (e.target.id === 'customVal') { cal.customVal = e.target.value; updateCalBtn(); }
+  });
+  $('#fileGallery').addEventListener('change', e => { loadFile(e.target.files[0]); e.target.value = ''; });
+  $('#fileCamera').addEventListener('change', e => { loadFile(e.target.files[0]); e.target.value = ''; });
+
+  new ResizeObserver(() => { fit(); draw(); }).observe(stage);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) stopCam(); else if (step === 'camera') startCam();
+  });
+  window.addEventListener('pagehide', stopCam);
+
+  setStep('camera');
+  startCam();
+})();
+</script>
+</body>
+</html>
