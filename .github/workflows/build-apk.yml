@@ -93,7 +93,7 @@ jobs:
                   targetSdk = 34
                   // Grows with every GitHub build so a new APK can be installed over the old one.
                   versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
-                  versionName = "1.3"
+                  versionName = "1.4"
               }
 
               // Same key every build => the phone accepts the new APK as an update (no uninstall needed).
@@ -358,24 +358,39 @@ jobs:
           import android.widget.TextView
           import java.util.Locale
           import kotlin.math.PI
+          import kotlin.math.acos
+          import kotlin.math.cos
           import kotlin.math.sin
-          import kotlin.math.tan
+          import kotlin.math.sqrt
 
-          /** 45 degree / 90 degree elbow and round (circle) calculator. */
+          /**
+           * 45 / 90 degree corner calculator and round (circle) calculator.
+           *
+           *  - Corner: two sides measured from a corner (A and B) -> distance between their ends (C).
+           *  - Round: give diameter, radius or the round length -> all the others.
+           */
           class CalcActivity : Activity() {
 
               private var shape = 90 // 45, 90, or 360 (round)
+              private var roundMode = 0 // 0 = diameter, 1 = radius, 2 = round length
               private var unit = LengthUnit.CM
 
               private lateinit var btn45: Button
               private lateinit var btn90: Button
               private lateinit var btnRound: Button
               private lateinit var btnUnit: Button
+              private lateinit var lblKnow: TextView
+              private lateinit var roundRow: LinearLayout
+              private lateinit var btnKnowD: Button
+              private lateinit var btnKnowR: Button
+              private lateinit var btnKnowC: Button
               private lateinit var lblMain: TextView
-              private lateinit var lblPipe: TextView
+              private lateinit var lblSecond: TextView
               private lateinit var inMain: EditText
-              private lateinit var inPipe: EditText
+              private lateinit var inSecond: EditText
+              private lateinit var diagram: DiagramView
               private lateinit var resultBox: LinearLayout
+              private lateinit var noteText: TextView
 
               private val density: Float get() = resources.displayMetrics.density
 
@@ -387,15 +402,25 @@ jobs:
                   btn90 = findViewById(R.id.btn90)
                   btnRound = findViewById(R.id.btnRound)
                   btnUnit = findViewById(R.id.btnCalcUnit)
+                  lblKnow = findViewById(R.id.lblKnow)
+                  roundRow = findViewById(R.id.roundRow)
+                  btnKnowD = findViewById(R.id.btnKnowD)
+                  btnKnowR = findViewById(R.id.btnKnowR)
+                  btnKnowC = findViewById(R.id.btnKnowC)
                   lblMain = findViewById(R.id.lblMain)
-                  lblPipe = findViewById(R.id.lblPipe)
+                  lblSecond = findViewById(R.id.lblSecond)
                   inMain = findViewById(R.id.inMain)
-                  inPipe = findViewById(R.id.inPipe)
+                  inSecond = findViewById(R.id.inSecond)
+                  diagram = findViewById(R.id.diagram)
                   resultBox = findViewById(R.id.resultBox)
+                  noteText = findViewById(R.id.noteText)
 
                   btn45.setOnClickListener { select(45) }
                   btn90.setOnClickListener { select(90) }
                   btnRound.setOnClickListener { select(360) }
+                  btnKnowD.setOnClickListener { selectRoundMode(0) }
+                  btnKnowR.setOnClickListener { selectRoundMode(1) }
+                  btnKnowC.setOnClickListener { selectRoundMode(2) }
                   btnUnit.setOnClickListener { showUnitDialog() }
 
                   val watcher = object : TextWatcher {
@@ -406,7 +431,7 @@ jobs:
                       }
                   }
                   inMain.addTextChangedListener(watcher)
-                  inPipe.addTextChangedListener(watcher)
+                  inSecond.addTextChangedListener(watcher)
 
                   select(90)
               }
@@ -416,8 +441,22 @@ jobs:
                   styleButton(btn45, s == 45)
                   styleButton(btn90, s == 90)
                   styleButton(btnRound, s == 360)
+                  styleRoundButtons()
                   updateLabels()
                   recalc()
+              }
+
+              private fun selectRoundMode(m: Int) {
+                  roundMode = m
+                  styleRoundButtons()
+                  updateLabels()
+                  recalc()
+              }
+
+              private fun styleRoundButtons() {
+                  styleButton(btnKnowD, roundMode == 0)
+                  styleButton(btnKnowR, roundMode == 1)
+                  styleButton(btnKnowC, roundMode == 2)
               }
 
               private fun styleButton(b: Button, selected: Boolean) {
@@ -429,14 +468,27 @@ jobs:
                   val u = unit.label
                   btnUnit.text = "Unit: " + u
                   if (shape == 360) {
-                      lblMain.text = "Diameter (" + u + ")"
-                      lblPipe.visibility = View.GONE
-                      inPipe.visibility = View.GONE
+                      lblKnow.visibility = View.VISIBLE
+                      roundRow.visibility = View.VISIBLE
+                      lblSecond.visibility = View.GONE
+                      inSecond.visibility = View.GONE
+                      lblMain.text = when (roundMode) {
+                          0 -> "Diameter - full centre (" + u + ")"
+                          1 -> "Radius - half centre (" + u + ")"
+                          else -> "Round length around the circle (" + u + ")"
+                      }
+                      inMain.hint = "e.g. 30"
+                      noteText.text = "Round = π × Diameter     Diameter = 2 × Radius     Area = π × Radius²"
                   } else {
-                      lblMain.text = "Bend radius, centre line (" + u + ")"
-                      lblPipe.text = "Pipe diameter, optional (" + u + ")"
-                      lblPipe.visibility = View.VISIBLE
-                      inPipe.visibility = View.VISIBLE
+                      lblKnow.visibility = View.GONE
+                      roundRow.visibility = View.GONE
+                      lblSecond.visibility = View.VISIBLE
+                      inSecond.visibility = View.VISIBLE
+                      lblMain.text = "Side A, from the corner (" + u + ")"
+                      lblSecond.text = "Side B, from the corner (" + u + ")"
+                      inMain.hint = "e.g. 15"
+                      inSecond.hint = "e.g. 20"
+                      noteText.text = "C = √(A² + B² − 2·A·B·cos " + shape + "°)"
                   }
               }
 
@@ -445,35 +497,63 @@ jobs:
 
               private fun recalc() {
                   resultBox.removeAllViews()
-                  val main = num(inMain)
-                  if (main == null || main <= 0.0) {
-                      addNote("Enter a value above to see the result.")
+                  val first = num(inMain)
+                  if (shape == 360) recalcRound(first) else recalcCorner(first, num(inSecond))
+              }
+
+              /** Two sides from a corner -> distance between their ends. */
+              private fun recalcCorner(a: Double?, b: Double?) {
+                  if (a == null || a <= 0.0 || b == null || b <= 0.0) {
+                      diagram.showTriangle(shape, null, null, "A", "B", "C = ?")
+                      addNote("Enter side A and side B to get the distance between their ends.")
                       return
                   }
+                  val rad = shape * PI / 180.0
+                  val cosT = if (shape == 90) 0.0 else cos(rad)
+                  val c = sqrt(a * a + b * b - 2.0 * a * b * cosT)
+                  val angA = Math.toDegrees(acos(((a * a + c * c - b * b) / (2.0 * a * c)).coerceIn(-1.0, 1.0)))
+                  val angB = 180.0 - shape - angA
+                  val area = 0.5 * a * b * sin(rad)
 
-                  if (shape == 360) {
-                      val dia = main
-                      addRow("Radius", unit.formatValue(dia / 2.0))
-                      addRow("Circumference", unit.formatValue(PI * dia))
-                      addRow("Area", String.format(Locale.US, "%.2f %s²", PI * dia * dia / 4.0, unit.label))
-                  } else {
-                      val r = main
-                      val rad = shape * PI / 180.0
-                      addRow("Bend angle", shape.toString() + "°")
-                      addRow("Arc length (centre line)", unit.formatValue(r * rad))
-                      addRow("Chord (bend start to end)", unit.formatValue(2.0 * r * sin(rad / 2.0)))
-                      addRow("Tangent (corner to bend start)", unit.formatValue(r * tan(rad / 2.0)))
+                  diagram.showTriangle(
+                      shape, a, b,
+                      "A = " + unit.formatValue(a),
+                      "B = " + unit.formatValue(b),
+                      "C = " + unit.formatValue(c)
+                  )
 
-                      val pipe = num(inPipe)
-                      if (pipe != null && pipe > 0.0) {
-                          val inner = r - pipe / 2.0
-                          addRow("Outer arc", unit.formatValue((r + pipe / 2.0) * rad))
-                          addRow(
-                              "Inner arc",
-                              if (inner > 0.0) unit.formatValue(inner * rad) else "n/a (radius too small)"
-                          )
-                      }
+                  addRow("Distance between the two ends (C)", unit.formatValue(c))
+                  addRow("Angle at end of A", String.format(Locale.US, "%.1f°", angA))
+                  addRow("Angle at end of B", String.format(Locale.US, "%.1f°", angB))
+                  addRow("Area of the triangle", String.format(Locale.US, "%.2f %s²", area, unit.label))
+              }
+
+              /** Diameter, radius or round length -> all of them. */
+              private fun recalcRound(v: Double?) {
+                  if (v == null || v <= 0.0) {
+                      diagram.showCircle("D = ?", "R = ?", "Round = ?")
+                      addNote("Enter a value to get the full centre, half centre and round length.")
+                      return
                   }
+                  val dia = when (roundMode) {
+                      0 -> v
+                      1 -> v * 2.0
+                      else -> v / PI
+                  }
+                  val r = dia / 2.0
+                  val round = PI * dia
+                  val area = PI * r * r
+
+                  diagram.showCircle(
+                      "D = " + unit.formatValue(dia),
+                      "R = " + unit.formatValue(r),
+                      "Round = " + unit.formatValue(round)
+                  )
+
+                  addRow("Centre full (Diameter)", unit.formatValue(dia))
+                  addRow("Centre half (Radius)", unit.formatValue(r))
+                  addRow("Round length", unit.formatValue(round))
+                  addRow("Area", String.format(Locale.US, "%.2f %s²", area, unit.label))
               }
 
               private fun addNote(text: String) {
@@ -518,6 +598,282 @@ jobs:
                           recalc()
                       }
                       .show()
+              }
+          }
+          ARSCALE_EOF
+          mkdir -p "$(dirname 'app/src/main/java/com/arscale/app/DiagramView.kt')"
+          cat > 'app/src/main/java/com/arscale/app/DiagramView.kt' <<'ARSCALE_EOF'
+          package com.arscale.app
+
+          import android.content.Context
+          import android.graphics.Canvas
+          import android.graphics.Color
+          import android.graphics.Paint
+          import android.graphics.Path
+          import android.graphics.PointF
+          import android.graphics.RectF
+          import android.graphics.Typeface
+          import android.util.AttributeSet
+          import android.view.View
+          import kotlin.math.cos
+          import kotlin.math.max
+          import kotlin.math.min
+          import kotlin.math.sin
+          import kotlin.math.sqrt
+
+          /**
+           * Picture for the calculator.
+           *  - Triangle: a corner (45 or 90 degrees) with side A and side B, and the distance C between their ends.
+           *  - Circle: diameter (full centre), radius (half centre) and the round length around it.
+           */
+          class DiagramView @JvmOverloads constructor(
+              context: Context,
+              attrs: AttributeSet? = null
+          ) : View(context, attrs) {
+
+              private val d = resources.displayMetrics.density
+
+              private var mode = 0 // 1 = triangle, 2 = circle
+              private var angleDeg = 90
+              private var sideA = 4.0
+              private var sideB = 3.0
+              private var textA = "A"
+              private var textB = "B"
+              private var textC = "C"
+              private var textD = "D"
+              private var textR = "R"
+              private var textRound = "Round"
+
+              private val colorSide = Color.parseColor("#37474F")
+              private val colorResult = Color.parseColor("#E65100")
+              private val colorDia = Color.parseColor("#1565C0")
+              private val colorRad = Color.parseColor("#2E7D32")
+              private val colorFill = Color.parseColor("#E3EAF0")
+
+              private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                  style = Paint.Style.FILL
+                  color = colorFill
+              }
+              private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                  style = Paint.Style.STROKE
+                  strokeCap = Paint.Cap.ROUND
+                  strokeWidth = 3f * d
+              }
+              private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                  style = Paint.Style.FILL
+              }
+              private val markPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                  style = Paint.Style.STROKE
+                  strokeWidth = 1.8f * d
+                  color = Color.parseColor("#607D8B")
+              }
+              private val pillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                  style = Paint.Style.FILL
+              }
+              private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                  color = Color.WHITE
+                  textSize = 13f * d
+                  typeface = Typeface.DEFAULT_BOLD
+                  textAlign = Paint.Align.CENTER
+              }
+              private val angleText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                  color = Color.parseColor("#455A64")
+                  textSize = 13f * d
+                  typeface = Typeface.DEFAULT_BOLD
+                  textAlign = Paint.Align.CENTER
+              }
+              private val rect = RectF()
+              private val path = Path()
+
+              /** Corner picture. Pass null sizes to draw a sample shape with the letters A, B, C. */
+              fun showTriangle(angle: Int, a: Double?, b: Double?, labelA: String, labelB: String, labelC: String) {
+                  mode = 1
+                  angleDeg = angle
+                  var sa = 4.0
+                  var sb = 3.0
+                  if (a != null && b != null && a > 0.0 && b > 0.0) {
+                      sa = a
+                      sb = b
+                  }
+                  // Keep very uneven sides drawable.
+                  val m = max(sa, sb)
+                  sideA = max(sa, m / 10.0)
+                  sideB = max(sb, m / 10.0)
+                  textA = labelA
+                  textB = labelB
+                  textC = labelC
+                  invalidate()
+              }
+
+              fun showCircle(labelD: String, labelR: String, labelRound: String) {
+                  mode = 2
+                  textD = labelD
+                  textR = labelR
+                  textRound = labelRound
+                  invalidate()
+              }
+
+              override fun onDraw(canvas: Canvas) {
+                  super.onDraw(canvas)
+                  if (mode == 1) drawTriangle(canvas) else if (mode == 2) drawCircle(canvas)
+              }
+
+              private fun dist(a: PointF, b: PointF): Float {
+                  val dx = a.x - b.x
+                  val dy = a.y - b.y
+                  return max(1f, sqrt(dx * dx + dy * dy))
+              }
+
+              private fun drawTriangle(canvas: Canvas) {
+                  val rad = Math.toRadians(angleDeg.toDouble())
+                  val px = sideA
+                  val qx = sideB * cos(rad)
+                  val qy = sideB * sin(rad)
+                  val minX = min(0.0, min(px, qx))
+                  val maxX = max(0.0, max(px, qx))
+                  val bw = max(maxX - minX, 1e-9)
+                  val bh = max(qy, 1e-9)
+
+                  val padX = 48f * d
+                  val padTop = 34f * d
+                  val padBottom = 42f * d
+                  val availW = width - 2f * padX
+                  val availH = height - padTop - padBottom
+                  if (availW <= 0f || availH <= 0f) return
+
+                  val sc = min(availW / bw, availH / bh).toFloat()
+                  val offX = padX + (availW - bw.toFloat() * sc) / 2f
+                  val baseY = height - padBottom - (availH - bh.toFloat() * sc) / 2f
+
+                  val o = PointF(offX + (0.0 - minX).toFloat() * sc, baseY)
+                  val p = PointF(offX + (px - minX).toFloat() * sc, baseY)
+                  val q = PointF(offX + (qx - minX).toFloat() * sc, baseY - qy.toFloat() * sc)
+
+                  // body
+                  path.reset()
+                  path.moveTo(o.x, o.y)
+                  path.lineTo(p.x, p.y)
+                  path.lineTo(q.x, q.y)
+                  path.close()
+                  canvas.drawPath(path, fillPaint)
+
+                  linePaint.color = colorSide
+                  linePaint.strokeWidth = 3f * d
+                  canvas.drawLine(o.x, o.y, p.x, p.y, linePaint)
+                  canvas.drawLine(o.x, o.y, q.x, q.y, linePaint)
+                  linePaint.color = colorResult
+                  linePaint.strokeWidth = 4.5f * d
+                  canvas.drawLine(p.x, p.y, q.x, q.y, linePaint)
+
+                  // angle mark at the corner O
+                  val lenOP = dist(o, p)
+                  val lenOQ = dist(o, q)
+                  val mr = min(24f * d, 0.4f * min(lenOP, lenOQ))
+                  if (angleDeg == 90) {
+                      val ux = (p.x - o.x) / lenOP
+                      val uy = (p.y - o.y) / lenOP
+                      val vx = (q.x - o.x) / lenOQ
+                      val vy = (q.y - o.y) / lenOQ
+                      path.reset()
+                      path.moveTo(o.x + ux * mr, o.y + uy * mr)
+                      path.lineTo(o.x + (ux + vx) * mr, o.y + (uy + vy) * mr)
+                      path.lineTo(o.x + vx * mr, o.y + vy * mr)
+                      canvas.drawPath(path, markPaint)
+                  } else {
+                      rect.set(o.x - mr, o.y - mr, o.x + mr, o.y + mr)
+                      canvas.drawArc(rect, -angleDeg.toFloat(), angleDeg.toFloat(), false, markPaint)
+                  }
+                  val half = rad / 2.0
+                  val tr = mr + 18f * d
+                  val tx = o.x + tr * cos(half).toFloat()
+                  val ty = o.y - tr * sin(half).toFloat()
+                  canvas.drawText(angleDeg.toString() + "°", tx, ty + 5f * d, angleText)
+
+                  // corner dots
+                  dotPaint.color = colorSide
+                  canvas.drawCircle(o.x, o.y, 4f * d, dotPaint)
+                  canvas.drawCircle(p.x, p.y, 4f * d, dotPaint)
+                  canvas.drawCircle(q.x, q.y, 4f * d, dotPaint)
+
+                  // side labels, placed outside the triangle
+                  val gx = (o.x + p.x + q.x) / 3f
+                  val gy = (o.y + p.y + q.y) / 3f
+                  sideLabel(canvas, o, p, gx, gy, textA, colorSide)
+                  sideLabel(canvas, o, q, gx, gy, textB, colorSide)
+                  sideLabel(canvas, p, q, gx, gy, textC, colorResult)
+              }
+
+              private fun sideLabel(canvas: Canvas, u: PointF, v: PointF, gx: Float, gy: Float, text: String, color: Int) {
+                  val mx = (u.x + v.x) / 2f
+                  val my = (u.y + v.y) / 2f
+                  val len = dist(u, v)
+                  val dx = (v.x - u.x) / len
+                  val dy = (v.y - u.y) / len
+                  var nx = -dy
+                  var ny = dx
+                  if (nx * (mx - gx) + ny * (my - gy) < 0f) {
+                      nx = -nx
+                      ny = -ny
+                  }
+                  drawPill(canvas, mx + nx * 20f * d, my + ny * 20f * d, text, color)
+              }
+
+              private fun drawCircle(canvas: Canvas) {
+                  val cx = width / 2f
+                  val cy = height / 2f - 4f * d
+                  val r = min(width / 2f - 24f * d, height / 2f - 46f * d)
+                  if (r <= 10f * d) return
+
+                  canvas.drawCircle(cx, cy, r, fillPaint)
+
+                  // round (circumference)
+                  linePaint.color = colorResult
+                  linePaint.strokeWidth = 4.5f * d
+                  canvas.drawCircle(cx, cy, r, linePaint)
+
+                  // diameter: full centre line
+                  linePaint.color = colorDia
+                  linePaint.strokeWidth = 3f * d
+                  canvas.drawLine(cx - r, cy, cx + r, cy, linePaint)
+                  canvas.drawLine(cx - r, cy - 7f * d, cx - r, cy + 7f * d, linePaint)
+                  canvas.drawLine(cx + r, cy - 7f * d, cx + r, cy + 7f * d, linePaint)
+
+                  // radius: half of the centre line
+                  val ang = Math.toRadians(40.0)
+                  val ex = cx + r * cos(ang).toFloat()
+                  val ey = cy + r * sin(ang).toFloat()
+                  linePaint.color = colorRad
+                  linePaint.strokeWidth = 4f * d
+                  canvas.drawLine(cx, cy, ex, ey, linePaint)
+
+                  dotPaint.color = colorSide
+                  canvas.drawCircle(cx, cy, 4.5f * d, dotPaint)
+
+                  drawPill(canvas, cx, cy - 20f * d, textD, colorDia)
+
+                  val mx = (cx + ex) / 2f
+                  val my = (cy + ey) / 2f
+                  val nx = (-sin(ang)).toFloat()
+                  val ny = cos(ang).toFloat()
+                  drawPill(canvas, mx + nx * 22f * d, my + ny * 22f * d, textR, colorRad)
+
+                  drawPill(canvas, cx, cy + r + 24f * d, textRound, colorResult)
+              }
+
+              private fun drawPill(canvas: Canvas, cx0: Float, cy0: Float, text: String, bg: Int) {
+                  val w = textPaint.measureText(text)
+                  val fm = textPaint.fontMetrics
+                  val h = fm.descent - fm.ascent
+                  val padX = 8f * d
+                  val padY = 4f * d
+                  val halfW = w / 2f + padX
+                  val halfH = h / 2f + padY
+                  val cx = cx0.coerceIn(halfW + 2f * d, max(halfW + 2f * d, width - halfW - 2f * d))
+                  val cy = cy0.coerceIn(halfH + 2f * d, max(halfH + 2f * d, height - halfH - 2f * d))
+                  rect.set(cx - halfW, cy - halfH, cx + halfW, cy + halfH)
+                  pillPaint.color = bg
+                  canvas.drawRoundRect(rect, halfH, halfH, pillPaint)
+                  canvas.drawText(text, cx, cy - (fm.ascent + fm.descent) / 2f, textPaint)
               }
           }
           ARSCALE_EOF
@@ -1810,45 +2166,6 @@ jobs:
               <corners android:radius="28dp" />
           </shape>
           ARSCALE_EOF
-          mkdir -p "$(dirname 'app/src/main/res/drawable/ic_elbow.xml')"
-          cat > 'app/src/main/res/drawable/ic_elbow.xml' <<'ARSCALE_EOF'
-          <?xml version="1.0" encoding="utf-8"?>
-          <vector xmlns:android="http://schemas.android.com/apk/res/android"
-              android:width="96dp"
-              android:height="96dp"
-              android:viewportWidth="120"
-              android:viewportHeight="120">
-
-              <!-- 90 degree pipe elbow -->
-              <path
-                  android:fillColor="#00000000"
-                  android:pathData="M34,100 L34,64 A30,30 0 0 1 64,34 L100,34"
-                  android:strokeColor="#78909C"
-                  android:strokeWidth="18" />
-
-              <!-- centre line -->
-              <path
-                  android:fillColor="#00000000"
-                  android:pathData="M34,100 L34,64 A30,30 0 0 1 64,34 L100,34"
-                  android:strokeColor="#ECEFF1"
-                  android:strokeWidth="2" />
-
-              <!-- flanges -->
-              <path
-                  android:fillColor="#455A64"
-                  android:pathData="M20,98 h28 v8 h-28 z" />
-              <path
-                  android:fillColor="#455A64"
-                  android:pathData="M98,20 h8 v28 h-8 z" />
-
-              <!-- angle mark -->
-              <path
-                  android:fillColor="#00000000"
-                  android:pathData="M34,84 A20,20 0 0 0 54,104"
-                  android:strokeColor="#F9A825"
-                  android:strokeWidth="3" />
-          </vector>
-          ARSCALE_EOF
           mkdir -p "$(dirname 'app/src/main/res/drawable/ic_launcher.xml')"
           cat > 'app/src/main/res/drawable/ic_launcher.xml' <<'ARSCALE_EOF'
           <vector xmlns:android="http://schemas.android.com/apk/res/android"
@@ -1940,7 +2257,7 @@ jobs:
                       android:layout_height="wrap_content"
                       android:paddingTop="8dp"
                       android:paddingBottom="16dp"
-                      android:text="Elbow &amp; Round"
+                      android:text="Corner &amp; Round"
                       android:textColor="#222222"
                       android:textSize="28sp"
                       android:textStyle="bold" />
@@ -1991,6 +2308,58 @@ jobs:
                       android:textAllCaps="false" />
 
                   <TextView
+                      android:id="@+id/lblKnow"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="12dp"
+                      android:text="I know the:"
+                      android:textColor="#555555"
+                      android:textSize="14sp"
+                      android:visibility="gone" />
+
+                  <LinearLayout
+                      android:id="@+id/roundRow"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:orientation="horizontal"
+                      android:visibility="gone">
+
+                      <Button
+                          android:id="@+id/btnKnowD"
+                          android:layout_width="0dp"
+                          android:layout_height="wrap_content"
+                          android:layout_marginEnd="4dp"
+                          android:layout_weight="1"
+                          android:maxLines="1"
+                          android:text="Diameter"
+                          android:textAllCaps="false"
+                          android:textSize="13sp" />
+
+                      <Button
+                          android:id="@+id/btnKnowR"
+                          android:layout_width="0dp"
+                          android:layout_height="wrap_content"
+                          android:layout_marginStart="4dp"
+                          android:layout_marginEnd="4dp"
+                          android:layout_weight="1"
+                          android:maxLines="1"
+                          android:text="Radius"
+                          android:textAllCaps="false"
+                          android:textSize="13sp" />
+
+                      <Button
+                          android:id="@+id/btnKnowC"
+                          android:layout_width="0dp"
+                          android:layout_height="wrap_content"
+                          android:layout_marginStart="4dp"
+                          android:layout_weight="1"
+                          android:maxLines="1"
+                          android:text="Round length"
+                          android:textAllCaps="false"
+                          android:textSize="13sp" />
+                  </LinearLayout>
+
+                  <TextView
                       android:id="@+id/lblMain"
                       android:layout_width="match_parent"
                       android:layout_height="wrap_content"
@@ -2002,13 +2371,13 @@ jobs:
                       android:id="@+id/inMain"
                       android:layout_width="match_parent"
                       android:layout_height="wrap_content"
-                      android:hint="e.g. 30"
+                      android:hint="e.g. 15"
                       android:inputType="numberDecimal"
                       android:textColor="#222222"
                       android:textSize="22sp" />
 
                   <TextView
-                      android:id="@+id/lblPipe"
+                      android:id="@+id/lblSecond"
                       android:layout_width="match_parent"
                       android:layout_height="wrap_content"
                       android:layout_marginTop="8dp"
@@ -2016,28 +2385,34 @@ jobs:
                       android:textSize="14sp" />
 
                   <EditText
-                      android:id="@+id/inPipe"
+                      android:id="@+id/inSecond"
                       android:layout_width="match_parent"
                       android:layout_height="wrap_content"
-                      android:hint="e.g. 5"
+                      android:hint="e.g. 20"
                       android:inputType="numberDecimal"
                       android:textColor="#222222"
                       android:textSize="22sp" />
+
+                  <com.arscale.app.DiagramView
+                      android:id="@+id/diagram"
+                      android:layout_width="match_parent"
+                      android:layout_height="250dp"
+                      android:layout_marginTop="16dp" />
 
                   <LinearLayout
                       android:id="@+id/resultBox"
                       android:layout_width="match_parent"
                       android:layout_height="wrap_content"
-                      android:layout_marginTop="20dp"
+                      android:layout_marginTop="8dp"
                       android:background="@drawable/card_bg"
                       android:orientation="vertical"
                       android:padding="18dp" />
 
                   <TextView
+                      android:id="@+id/noteText"
                       android:layout_width="match_parent"
                       android:layout_height="wrap_content"
                       android:layout_marginTop="12dp"
-                      android:text="Arc = R × angle     Chord = 2R × sin(angle/2)     Tangent = R × tan(angle/2)     Circumference = π × D"
                       android:textColor="#888888"
                       android:textSize="12sp" />
               </LinearLayout>
@@ -2174,17 +2549,17 @@ jobs:
                       android:gravity="center"
                       android:orientation="vertical">
 
-                      <ImageView
-                          android:layout_width="64dp"
-                          android:layout_height="64dp"
-                          android:contentDescription="Elbow and round calculator"
-                          android:src="@drawable/ic_elbow" />
+                      <TextView
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:text="📐"
+                          android:textSize="52sp" />
 
                       <TextView
                           android:layout_width="wrap_content"
                           android:layout_height="wrap_content"
                           android:layout_marginTop="6dp"
-                          android:text="Elbow &amp; Round"
+                          android:text="Corner &amp; Round"
                           android:textColor="#222222"
                           android:textSize="22sp"
                           android:textStyle="bold" />
