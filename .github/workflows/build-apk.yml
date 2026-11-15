@@ -93,7 +93,7 @@ jobs:
                   targetSdk = 34
                   // Grows with every GitHub build so a new APK can be installed over the old one.
                   versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
-                  versionName = "1.2"
+                  versionName = "1.3"
               }
 
               // Same key every build => the phone accepts the new APK as an update (no uninstall needed).
@@ -163,8 +163,15 @@ jobs:
 
                   <activity
                       android:name=".LevelActivity"
+                      android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|smallestScreenSize"
+                      android:exported="false" />
+
+                  <activity
+                      android:name=".CalcActivity"
                       android:exported="false"
-                      android:screenOrientation="portrait" />
+                      android:screenOrientation="portrait"
+                      android:theme="@style/HomeTheme"
+                      android:windowSoftInputMode="adjustResize" />
 
                   <activity
                       android:name=".HomeActivity"
@@ -332,6 +339,188 @@ jobs:
               }
           }
           ARSCALE_EOF
+          mkdir -p "$(dirname 'app/src/main/java/com/arscale/app/CalcActivity.kt')"
+          cat > 'app/src/main/java/com/arscale/app/CalcActivity.kt' <<'ARSCALE_EOF'
+          package com.arscale.app
+
+          import android.app.Activity
+          import android.app.AlertDialog
+          import android.graphics.Color
+          import android.graphics.Typeface
+          import android.os.Bundle
+          import android.text.Editable
+          import android.text.TextWatcher
+          import android.view.Gravity
+          import android.view.View
+          import android.widget.Button
+          import android.widget.EditText
+          import android.widget.LinearLayout
+          import android.widget.TextView
+          import java.util.Locale
+          import kotlin.math.PI
+          import kotlin.math.sin
+          import kotlin.math.tan
+
+          /** 45 degree / 90 degree elbow and round (circle) calculator. */
+          class CalcActivity : Activity() {
+
+              private var shape = 90 // 45, 90, or 360 (round)
+              private var unit = LengthUnit.CM
+
+              private lateinit var btn45: Button
+              private lateinit var btn90: Button
+              private lateinit var btnRound: Button
+              private lateinit var btnUnit: Button
+              private lateinit var lblMain: TextView
+              private lateinit var lblPipe: TextView
+              private lateinit var inMain: EditText
+              private lateinit var inPipe: EditText
+              private lateinit var resultBox: LinearLayout
+
+              private val density: Float get() = resources.displayMetrics.density
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  setContentView(R.layout.activity_calc)
+
+                  btn45 = findViewById(R.id.btn45)
+                  btn90 = findViewById(R.id.btn90)
+                  btnRound = findViewById(R.id.btnRound)
+                  btnUnit = findViewById(R.id.btnCalcUnit)
+                  lblMain = findViewById(R.id.lblMain)
+                  lblPipe = findViewById(R.id.lblPipe)
+                  inMain = findViewById(R.id.inMain)
+                  inPipe = findViewById(R.id.inPipe)
+                  resultBox = findViewById(R.id.resultBox)
+
+                  btn45.setOnClickListener { select(45) }
+                  btn90.setOnClickListener { select(90) }
+                  btnRound.setOnClickListener { select(360) }
+                  btnUnit.setOnClickListener { showUnitDialog() }
+
+                  val watcher = object : TextWatcher {
+                      override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                      override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                      override fun afterTextChanged(s: Editable?) {
+                          recalc()
+                      }
+                  }
+                  inMain.addTextChangedListener(watcher)
+                  inPipe.addTextChangedListener(watcher)
+
+                  select(90)
+              }
+
+              private fun select(s: Int) {
+                  shape = s
+                  styleButton(btn45, s == 45)
+                  styleButton(btn90, s == 90)
+                  styleButton(btnRound, s == 360)
+                  updateLabels()
+                  recalc()
+              }
+
+              private fun styleButton(b: Button, selected: Boolean) {
+                  b.setBackgroundColor(Color.parseColor(if (selected) "#37474F" else "#CFD8DC"))
+                  b.setTextColor(if (selected) Color.WHITE else Color.parseColor("#222222"))
+              }
+
+              private fun updateLabels() {
+                  val u = unit.label
+                  btnUnit.text = "Unit: " + u
+                  if (shape == 360) {
+                      lblMain.text = "Diameter (" + u + ")"
+                      lblPipe.visibility = View.GONE
+                      inPipe.visibility = View.GONE
+                  } else {
+                      lblMain.text = "Bend radius, centre line (" + u + ")"
+                      lblPipe.text = "Pipe diameter, optional (" + u + ")"
+                      lblPipe.visibility = View.VISIBLE
+                      inPipe.visibility = View.VISIBLE
+                  }
+              }
+
+              private fun num(e: EditText): Double? =
+                  e.text.toString().trim().replace(',', '.').toDoubleOrNull()
+
+              private fun recalc() {
+                  resultBox.removeAllViews()
+                  val main = num(inMain)
+                  if (main == null || main <= 0.0) {
+                      addNote("Enter a value above to see the result.")
+                      return
+                  }
+
+                  if (shape == 360) {
+                      val dia = main
+                      addRow("Radius", unit.formatValue(dia / 2.0))
+                      addRow("Circumference", unit.formatValue(PI * dia))
+                      addRow("Area", String.format(Locale.US, "%.2f %s²", PI * dia * dia / 4.0, unit.label))
+                  } else {
+                      val r = main
+                      val rad = shape * PI / 180.0
+                      addRow("Bend angle", shape.toString() + "°")
+                      addRow("Arc length (centre line)", unit.formatValue(r * rad))
+                      addRow("Chord (bend start to end)", unit.formatValue(2.0 * r * sin(rad / 2.0)))
+                      addRow("Tangent (corner to bend start)", unit.formatValue(r * tan(rad / 2.0)))
+
+                      val pipe = num(inPipe)
+                      if (pipe != null && pipe > 0.0) {
+                          val inner = r - pipe / 2.0
+                          addRow("Outer arc", unit.formatValue((r + pipe / 2.0) * rad))
+                          addRow(
+                              "Inner arc",
+                              if (inner > 0.0) unit.formatValue(inner * rad) else "n/a (radius too small)"
+                          )
+                      }
+                  }
+              }
+
+              private fun addNote(text: String) {
+                  val t = TextView(this)
+                  t.text = text
+                  t.setTextColor(Color.parseColor("#777777"))
+                  t.textSize = 15f
+                  resultBox.addView(t)
+              }
+
+              private fun addRow(label: String, value: String) {
+                  val row = LinearLayout(this)
+                  row.orientation = LinearLayout.HORIZONTAL
+                  row.gravity = Gravity.CENTER_VERTICAL
+                  val pad = (7 * density).toInt()
+                  row.setPadding(0, pad, 0, pad)
+
+                  val l = TextView(this)
+                  l.text = label
+                  l.setTextColor(Color.parseColor("#555555"))
+                  l.textSize = 15f
+                  l.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+
+                  val v = TextView(this)
+                  v.text = value
+                  v.setTextColor(Color.parseColor("#222222"))
+                  v.textSize = 17f
+                  v.setTypeface(null, Typeface.BOLD)
+
+                  row.addView(l)
+                  row.addView(v)
+                  resultBox.addView(row)
+              }
+
+              private fun showUnitDialog() {
+                  val units = LengthUnit.values()
+                  AlertDialog.Builder(this)
+                      .setTitle("Select unit")
+                      .setItems(units.map { it.label }.toTypedArray()) { _, which ->
+                          unit = units[which]
+                          updateLabels()
+                          recalc()
+                      }
+                      .show()
+              }
+          }
+          ARSCALE_EOF
           mkdir -p "$(dirname 'app/src/main/java/com/arscale/app/HomeActivity.kt')"
           cat > 'app/src/main/java/com/arscale/app/HomeActivity.kt' <<'ARSCALE_EOF'
           package com.arscale.app
@@ -339,6 +528,7 @@ jobs:
           import android.app.Activity
           import android.content.Intent
           import android.os.Bundle
+          import android.view.View
 
           /** Start screen: one tile per tool. */
           class HomeActivity : Activity() {
@@ -347,11 +537,14 @@ jobs:
                   super.onCreate(savedInstanceState)
                   setContentView(R.layout.activity_home)
 
-                  findViewById<android.view.View>(R.id.cardScale).setOnClickListener {
+                  findViewById<View>(R.id.cardScale).setOnClickListener {
                       startActivity(Intent(this, MainActivity::class.java))
                   }
-                  findViewById<android.view.View>(R.id.cardLevel).setOnClickListener {
+                  findViewById<View>(R.id.cardLevel).setOnClickListener {
                       startActivity(Intent(this, LevelActivity::class.java))
+                  }
+                  findViewById<View>(R.id.cardCalc).setOnClickListener {
+                      startActivity(Intent(this, CalcActivity::class.java))
                   }
               }
           }
@@ -367,13 +560,16 @@ jobs:
           import android.hardware.SensorEventListener
           import android.hardware.SensorManager
           import android.os.Bundle
+          import android.view.Surface
           import android.view.WindowManager
           import android.widget.Toast
 
-          /** Stand-alone spirit level screen (no camera needed). */
+          /** Stand-alone spirit level screen (no camera needed). Rotates with the phone. */
           class LevelActivity : Activity(), SensorEventListener {
 
               private lateinit var levelView: LevelView
+
+              // Smoothed gravity in the phone's own axes (these do not change when the screen rotates).
               private val gravity = FloatArray(3)
               private var gravityInit = false
 
@@ -411,7 +607,32 @@ jobs:
                       // Light smoothing so the bubble does not jitter.
                       for (i in 0..2) gravity[i] += 0.2f * (event.values[i] - gravity[i])
                   }
-                  levelView.setGravity(gravity[0], gravity[1], gravity[2])
+
+                  // Convert from the phone's axes to the screen's axes for the current rotation,
+                  // so the level always lines up with what is drawn on screen.
+                  @Suppress("DEPRECATION")
+                  val rotation = windowManager.defaultDisplay.rotation
+                  val x: Float
+                  val y: Float
+                  when (rotation) {
+                      Surface.ROTATION_90 -> {
+                          x = -gravity[1]
+                          y = gravity[0]
+                      }
+                      Surface.ROTATION_180 -> {
+                          x = -gravity[0]
+                          y = -gravity[1]
+                      }
+                      Surface.ROTATION_270 -> {
+                          x = gravity[1]
+                          y = -gravity[0]
+                      }
+                      else -> {
+                          x = gravity[0]
+                          y = gravity[1]
+                      }
+                  }
+                  levelView.setGravity(x, y, gravity[2])
               }
 
               override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
@@ -434,6 +655,7 @@ jobs:
           import kotlin.math.acos
           import kotlin.math.asin
           import kotlin.math.atan2
+          import kotlin.math.min
           import kotlin.math.sqrt
 
           /**
@@ -522,7 +744,17 @@ jobs:
                   val cy = height / 2f
                   val flat = abs(gz) / g > 0.8f
 
+                  // Shrink the level to fit when the screen is short (landscape).
+                  val needW = (if (flat) 248f else 308f) * d
+                  val needH = (if (flat) 324f else 180f) * d
+                  val s = min(1f, min((width - 32f * d) / needW, (height - 128f * d) / needH)).coerceAtLeast(0.4f)
+
+                  canvas.save()
+                  canvas.translate(cx, cy)
+                  canvas.scale(s, s)
+                  canvas.translate(-cx, -cy)
                   if (flat) drawFlat(canvas, cx, cy, g) else drawUpright(canvas, cx, cy, g)
+                  canvas.restore()
               }
 
               private fun drawFlat(canvas: Canvas, cx: Float, cy: Float, g: Float) {
@@ -531,7 +763,7 @@ jobs:
                   val total = Math.toDegrees(acos((abs(gz) / g).coerceIn(0f, 1f).toDouble())).toFloat()
 
                   val r = 100f * d
-                  val ccy = cy - 10f * d
+                  val ccy = cy - 38f * d
                   rect.set(cx - r - 24f * d, ccy - r - 24f * d, cx + r + 24f * d, ccy + r + 100f * d)
                   canvas.drawRoundRect(rect, 20f * d, 20f * d, panelPaint)
 
@@ -558,7 +790,8 @@ jobs:
                   canvas.drawText("Left-right " + fmt(tiltX) + "   Up-down " + fmt(tiltY), cx, ccy + r + 68f * d, smallText)
               }
 
-              private fun drawUpright(canvas: Canvas, cx: Float, cy: Float, g: Float) {
+              private fun drawUpright(canvas: Canvas, cx: Float, cy0: Float, g: Float) {
+                  val cy = cy0 - 43f * d
                   // Rotation of the phone in the plane of the screen, folded to the nearest 90 degrees so it
                   // works for portrait and landscape. Positive = right side low.
                   var theta = Math.toDegrees(atan2(-gx.toDouble(), gy.toDouble())).toFloat()
@@ -643,17 +876,6 @@ jobs:
 
           class MainActivity : Activity(), GLSurfaceView.Renderer {
 
-              private enum class LengthUnit(val label: String, val perMeter: Double, val decimals: Int) {
-                  MM("mm", 1000.0, 0),
-                  CM("cm", 100.0, 1),
-                  M("m", 1.0, 3),
-                  INCH("inch", 39.37007874, 2),
-                  FEET("feet", 3.280839895, 2);
-
-                  fun format(meters: Double): String =
-                      String.format(Locale.US, "%." + decimals + "f %s", meters * perMeter, label)
-              }
-
               private enum class FlashSetting(val label: String) {
                   OFF("Off"),
                   ON("On"),
@@ -677,12 +899,10 @@ jobs:
               private lateinit var overlay: OverlayView
               private lateinit var totalText: TextView
               private lateinit var statusText: TextView
-              private lateinit var btnUnit: Button
+              private lateinit var segmentsText: TextView
+              private lateinit var btnSettings: Button
               private lateinit var btnFlash: Button
-              private lateinit var btnCalibrate: Button
-              private lateinit var scaleText: TextView
               private lateinit var levelView: LevelView
-              private lateinit var btnLevel: Button
 
               // Spirit level (UI thread only)
               private var levelOn = false
@@ -741,6 +961,7 @@ jobs:
 
               private var lastTotal = ""
               private var lastStatus = ""
+              private var lastSegments = ""
 
               private val viewMatrix = FloatArray(16)
               private val projMatrix = FloatArray(16)
@@ -765,10 +986,9 @@ jobs:
                   overlay = findViewById(R.id.overlay)
                   totalText = findViewById(R.id.totalText)
                   statusText = findViewById(R.id.statusText)
-                  btnUnit = findViewById(R.id.btnUnit)
+                  segmentsText = findViewById(R.id.segmentsText)
+                  btnSettings = findViewById(R.id.btnSettings)
                   btnFlash = findViewById(R.id.btnFlash)
-                  btnCalibrate = findViewById(R.id.btnCalibrate)
-                  scaleText = findViewById(R.id.scaleText)
 
                   scale = try {
                       getSharedPreferences("arscale", MODE_PRIVATE).getFloat("scale", 1f).toDouble()
@@ -776,12 +996,8 @@ jobs:
                       1.0
                   }
                   if (scale < 0.05 || scale > 20.0) scale = 1.0
-                  updateScaleText()
-                  btnCalibrate.setOnClickListener { showCalibrateMenu() }
 
                   levelView = findViewById(R.id.levelView)
-                  btnLevel = findViewById(R.id.btnLevel)
-                  btnLevel.setOnClickListener { setLevel(!levelOn) }
 
                   surfaceView.preserveEGLContextOnPause = true
                   surfaceView.setEGLContextClientVersion(2)
@@ -807,8 +1023,7 @@ jobs:
                   findViewById<Button>(R.id.btnReset).setOnClickListener {
                       commands.add({ resetAll() })
                   }
-                  btnUnit.setOnClickListener { showUnitDialog() }
-                  updateUnitButton()
+                  btnSettings.setOnClickListener { showSettingsDialog() }
 
                   // Flash: Off -> On -> Auto -> Off
                   btnFlash.setOnClickListener {
@@ -1129,7 +1344,6 @@ jobs:
               private fun setLevel(on: Boolean) {
                   levelOn = on
                   levelView.visibility = if (on) View.VISIBLE else View.GONE
-                  btnLevel.text = if (on) "Level: On" else "Level: Off"
                   if (on) startLevelSensor() else stopLevelSensor()
               }
 
@@ -1141,7 +1355,6 @@ jobs:
                       toast("This phone has no tilt sensor")
                       levelOn = false
                       levelView.visibility = View.GONE
-                      btnLevel.text = "Level: Off"
                       return
                   }
                   gravityInit = false
@@ -1216,16 +1429,7 @@ jobs:
                   } catch (e: Exception) {
                       // Calibration still applies for this session.
                   }
-                  runOnUiThread { updateScaleText() }
                   toast(String.format(Locale.US, "Calibration set: x%.3f", s))
-              }
-
-              private fun updateScaleText() {
-                  scaleText.text = if (Math.abs(scale - 1.0) < 1e-6) {
-                      "Not calibrated"
-                  } else {
-                      String.format(Locale.US, "Calibrated x%.3f", scale)
-                  }
               }
 
               private fun undoPoint() {
@@ -1302,9 +1506,13 @@ jobs:
                   }
 
                   var total = 0.0
+                  val segList = StringBuilder()
                   for (i in 1 until points.size) {
                       val d = dist(points[i - 1].anchor, points[i].anchor)
                       total += d
+                      if (segList.isNotEmpty()) segList.append("  |  ")
+                      segList.append(points[i - 1].label).append("→").append(points[i].label)
+                          .append(' ').append(unit.format(d))
                       val a = clips[i - 1]
                       val b = clips[i]
                       if (a != null && b != null) {
@@ -1317,6 +1525,7 @@ jobs:
                       }
                   }
 
+                  updateSegments(segList.toString())
                   overlay.state = OverlayState(ovPoints, ovSegs)
                   overlay.postInvalidate()
 
@@ -1384,8 +1593,38 @@ jobs:
                   runOnUiThread { Toast.makeText(this, message, Toast.LENGTH_SHORT).show() }
               }
 
-              private fun updateUnitButton() {
-                  btnUnit.text = "Unit: " + unit.label
+              /** Small list under the total: A→B, B→C ... in order. */
+              private fun updateSegments(text: String) {
+                  if (text != lastSegments) {
+                      lastSegments = text
+                      runOnUiThread {
+                          segmentsText.text = text
+                          segmentsText.visibility = if (text.isEmpty()) View.GONE else View.VISIBLE
+                      }
+                  }
+              }
+
+              private fun showSettingsDialog() {
+                  val cal = if (Math.abs(scale - 1.0) < 1e-6) {
+                      "not calibrated"
+                  } else {
+                      String.format(Locale.US, "x%.3f", scale)
+                  }
+                  val items = arrayOf(
+                      "Unit: " + unit.label,
+                      "Calibrate (" + cal + ")",
+                      "Spirit level overlay: " + (if (levelOn) "On" else "Off")
+                  )
+                  AlertDialog.Builder(this)
+                      .setTitle("Settings")
+                      .setItems(items) { _, which ->
+                          when (which) {
+                              0 -> showUnitDialog()
+                              1 -> showCalibrateMenu()
+                              else -> setLevel(!levelOn)
+                          }
+                      }
+                      .show()
               }
 
               private fun showUnitDialog() {
@@ -1394,7 +1633,6 @@ jobs:
                       .setTitle("Select unit")
                       .setItems(units.map { it.label }.toTypedArray()) { _, which ->
                           unit = units[which]
-                          updateUnitButton()
                       }
                       .show()
               }
@@ -1535,6 +1773,34 @@ jobs:
               }
           }
           ARSCALE_EOF
+          mkdir -p "$(dirname 'app/src/main/java/com/arscale/app/Units.kt')"
+          cat > 'app/src/main/java/com/arscale/app/Units.kt' <<'ARSCALE_EOF'
+          package com.arscale.app
+
+          import java.util.Locale
+
+          /** Length units shared by the AR measure screen and the calculator. */
+          enum class LengthUnit(
+              val label: String,
+              val perMeter: Double,
+              val decimals: Int,
+              val calcDecimals: Int
+          ) {
+              MM("mm", 1000.0, 0, 1),
+              CM("cm", 100.0, 1, 2),
+              M("m", 1.0, 3, 3),
+              INCH("inch", 39.37007874, 2, 2),
+              FEET("feet", 3.280839895, 2, 3);
+
+              /** Metres -> text in this unit (AR measure screen). */
+              fun format(meters: Double): String =
+                  String.format(Locale.US, "%." + decimals + "f %s", meters * perMeter, label)
+
+              /** A value that is already in this unit -> text (calculator). */
+              fun formatValue(value: Double): String =
+                  String.format(Locale.US, "%." + calcDecimals + "f %s", value, label)
+          }
+          ARSCALE_EOF
           mkdir -p "$(dirname 'app/src/main/res/drawable/card_bg.xml')"
           cat > 'app/src/main/res/drawable/card_bg.xml' <<'ARSCALE_EOF'
           <?xml version="1.0" encoding="utf-8"?>
@@ -1543,6 +1809,45 @@ jobs:
               <solid android:color="#EEEEEE" />
               <corners android:radius="28dp" />
           </shape>
+          ARSCALE_EOF
+          mkdir -p "$(dirname 'app/src/main/res/drawable/ic_elbow.xml')"
+          cat > 'app/src/main/res/drawable/ic_elbow.xml' <<'ARSCALE_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="96dp"
+              android:height="96dp"
+              android:viewportWidth="120"
+              android:viewportHeight="120">
+
+              <!-- 90 degree pipe elbow -->
+              <path
+                  android:fillColor="#00000000"
+                  android:pathData="M34,100 L34,64 A30,30 0 0 1 64,34 L100,34"
+                  android:strokeColor="#78909C"
+                  android:strokeWidth="18" />
+
+              <!-- centre line -->
+              <path
+                  android:fillColor="#00000000"
+                  android:pathData="M34,100 L34,64 A30,30 0 0 1 64,34 L100,34"
+                  android:strokeColor="#ECEFF1"
+                  android:strokeWidth="2" />
+
+              <!-- flanges -->
+              <path
+                  android:fillColor="#455A64"
+                  android:pathData="M20,98 h28 v8 h-28 z" />
+              <path
+                  android:fillColor="#455A64"
+                  android:pathData="M98,20 h8 v28 h-8 z" />
+
+              <!-- angle mark -->
+              <path
+                  android:fillColor="#00000000"
+                  android:pathData="M34,84 A20,20 0 0 0 54,104"
+                  android:strokeColor="#F9A825"
+                  android:strokeWidth="3" />
+          </vector>
           ARSCALE_EOF
           mkdir -p "$(dirname 'app/src/main/res/drawable/ic_launcher.xml')"
           cat > 'app/src/main/res/drawable/ic_launcher.xml' <<'ARSCALE_EOF'
@@ -1561,6 +1866,182 @@ jobs:
                   android:fillColor="#1E88E5"
                   android:pathData="M26,40h4v12h-4z M38,40h4v16h-4z M50,40h4v12h-4z M62,40h4v16h-4z M74,40h4v12h-4z" />
           </vector>
+          ARSCALE_EOF
+          mkdir -p "$(dirname 'app/src/main/res/drawable/ic_spirit_level.xml')"
+          cat > 'app/src/main/res/drawable/ic_spirit_level.xml' <<'ARSCALE_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="96dp"
+              android:height="96dp"
+              android:viewportWidth="120"
+              android:viewportHeight="120">
+
+              <!-- body of the level -->
+              <path
+                  android:fillColor="#F9A825"
+                  android:pathData="M14,38 h92 a8,8 0 0 1 8,8 v28 a8,8 0 0 1 -8,8 h-92 a8,8 0 0 1 -8,-8 v-28 a8,8 0 0 1 8,-8 z" />
+
+              <!-- top highlight -->
+              <path
+                  android:fillColor="#FFCA28"
+                  android:pathData="M14,38 h92 a8,8 0 0 1 8,8 v4 h-108 v-4 a8,8 0 0 1 8,-8 z" />
+
+              <!-- centre vial -->
+              <path
+                  android:fillColor="#DCEDC8"
+                  android:pathData="M44,50 h32 a10,10 0 0 1 10,10 a10,10 0 0 1 -10,10 h-32 a10,10 0 0 1 -10,-10 a10,10 0 0 1 10,-10 z"
+                  android:strokeColor="#5D4037"
+                  android:strokeWidth="2" />
+
+              <!-- centre marks -->
+              <path
+                  android:fillColor="#00000000"
+                  android:pathData="M50,51 v18 M70,51 v18"
+                  android:strokeColor="#5D4037"
+                  android:strokeWidth="2" />
+
+              <!-- bubble -->
+              <path
+                  android:fillColor="#FFFFFF"
+                  android:pathData="M53,60 a7,7 0 1 0 14,0 a7,7 0 1 0 -14,0 z"
+                  android:strokeColor="#8D6E63"
+                  android:strokeWidth="1.5" />
+
+              <!-- small end vials -->
+              <path
+                  android:fillColor="#DCEDC8"
+                  android:pathData="M16,60 a6,6 0 1 0 12,0 a6,6 0 1 0 -12,0 z"
+                  android:strokeColor="#5D4037"
+                  android:strokeWidth="1.5" />
+              <path
+                  android:fillColor="#DCEDC8"
+                  android:pathData="M92,60 a6,6 0 1 0 12,0 a6,6 0 1 0 -12,0 z"
+                  android:strokeColor="#5D4037"
+                  android:strokeWidth="1.5" />
+          </vector>
+          ARSCALE_EOF
+          mkdir -p "$(dirname 'app/src/main/res/layout/activity_calc.xml')"
+          cat > 'app/src/main/res/layout/activity_calc.xml' <<'ARSCALE_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:background="#FAFAFA"
+              android:fillViewport="true">
+
+              <LinearLayout
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:orientation="vertical"
+                  android:padding="20dp">
+
+                  <TextView
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:paddingTop="8dp"
+                      android:paddingBottom="16dp"
+                      android:text="Elbow &amp; Round"
+                      android:textColor="#222222"
+                      android:textSize="28sp"
+                      android:textStyle="bold" />
+
+                  <LinearLayout
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:orientation="horizontal">
+
+                      <Button
+                          android:id="@+id/btn45"
+                          android:layout_width="0dp"
+                          android:layout_height="wrap_content"
+                          android:layout_marginEnd="4dp"
+                          android:layout_weight="1"
+                          android:text="45°"
+                          android:textAllCaps="false"
+                          android:textSize="18sp" />
+
+                      <Button
+                          android:id="@+id/btn90"
+                          android:layout_width="0dp"
+                          android:layout_height="wrap_content"
+                          android:layout_marginStart="4dp"
+                          android:layout_marginEnd="4dp"
+                          android:layout_weight="1"
+                          android:text="90°"
+                          android:textAllCaps="false"
+                          android:textSize="18sp" />
+
+                      <Button
+                          android:id="@+id/btnRound"
+                          android:layout_width="0dp"
+                          android:layout_height="wrap_content"
+                          android:layout_marginStart="4dp"
+                          android:layout_weight="1"
+                          android:text="Round"
+                          android:textAllCaps="false"
+                          android:textSize="18sp" />
+                  </LinearLayout>
+
+                  <Button
+                      android:id="@+id/btnCalcUnit"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="8dp"
+                      android:text="Unit: cm"
+                      android:textAllCaps="false" />
+
+                  <TextView
+                      android:id="@+id/lblMain"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="12dp"
+                      android:textColor="#555555"
+                      android:textSize="14sp" />
+
+                  <EditText
+                      android:id="@+id/inMain"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:hint="e.g. 30"
+                      android:inputType="numberDecimal"
+                      android:textColor="#222222"
+                      android:textSize="22sp" />
+
+                  <TextView
+                      android:id="@+id/lblPipe"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="8dp"
+                      android:textColor="#555555"
+                      android:textSize="14sp" />
+
+                  <EditText
+                      android:id="@+id/inPipe"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:hint="e.g. 5"
+                      android:inputType="numberDecimal"
+                      android:textColor="#222222"
+                      android:textSize="22sp" />
+
+                  <LinearLayout
+                      android:id="@+id/resultBox"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="20dp"
+                      android:background="@drawable/card_bg"
+                      android:orientation="vertical"
+                      android:padding="18dp" />
+
+                  <TextView
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="12dp"
+                      android:text="Arc = R × angle     Chord = 2R × sin(angle/2)     Tangent = R × tan(angle/2)     Circumference = π × D"
+                      android:textColor="#888888"
+                      android:textSize="12sp" />
+              </LinearLayout>
+          </ScrollView>
           ARSCALE_EOF
           mkdir -p "$(dirname 'app/src/main/res/layout/activity_home.xml')"
           cat > 'app/src/main/res/layout/activity_home.xml' <<'ARSCALE_EOF'
@@ -1650,11 +2131,11 @@ jobs:
                       android:gravity="center"
                       android:orientation="vertical">
 
-                      <TextView
-                          android:layout_width="wrap_content"
-                          android:layout_height="wrap_content"
-                          android:text="📐"
-                          android:textSize="52sp" />
+                      <ImageView
+                          android:layout_width="64dp"
+                          android:layout_height="64dp"
+                          android:contentDescription="Spirit level"
+                          android:src="@drawable/ic_spirit_level" />
 
                       <TextView
                           android:layout_width="wrap_content"
@@ -1672,6 +2153,55 @@ jobs:
                           android:textColor="#777777"
                           android:textSize="15sp" />
                   </LinearLayout>
+              </LinearLayout>
+
+              <LinearLayout
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:layout_marginTop="16dp"
+                  android:orientation="horizontal">
+
+                  <LinearLayout
+                      android:id="@+id/cardCalc"
+                      android:layout_width="0dp"
+                      android:layout_height="170dp"
+                      android:layout_marginEnd="8dp"
+                      android:layout_weight="1"
+                      android:background="@drawable/card_bg"
+                      android:clickable="true"
+                      android:focusable="true"
+                      android:foreground="?android:attr/selectableItemBackground"
+                      android:gravity="center"
+                      android:orientation="vertical">
+
+                      <ImageView
+                          android:layout_width="64dp"
+                          android:layout_height="64dp"
+                          android:contentDescription="Elbow and round calculator"
+                          android:src="@drawable/ic_elbow" />
+
+                      <TextView
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:layout_marginTop="6dp"
+                          android:text="Elbow &amp; Round"
+                          android:textColor="#222222"
+                          android:textSize="22sp"
+                          android:textStyle="bold" />
+
+                      <TextView
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:text="45° · 90° · Round"
+                          android:textColor="#777777"
+                          android:textSize="15sp" />
+                  </LinearLayout>
+
+                  <View
+                      android:layout_width="0dp"
+                      android:layout_height="0dp"
+                      android:layout_marginStart="8dp"
+                      android:layout_weight="1" />
               </LinearLayout>
           </LinearLayout>
           ARSCALE_EOF
@@ -1756,41 +2286,16 @@ jobs:
                       android:textColor="#E0E0E0"
                       android:textSize="14sp" />
 
-                  <LinearLayout
+                  <TextView
+                      android:id="@+id/segmentsText"
                       android:layout_width="match_parent"
                       android:layout_height="wrap_content"
-                      android:layout_marginTop="6dp"
-                      android:gravity="center_vertical"
-                      android:orientation="horizontal">
-
-                      <Button
-                          android:id="@+id/btnCalibrate"
-                          android:layout_width="wrap_content"
-                          android:layout_height="wrap_content"
-                          android:maxLines="1"
-                          android:text="Calibrate"
-                          android:textAllCaps="false"
-                          android:textSize="12sp" />
-
-                      <Button
-                          android:id="@+id/btnLevel"
-                          android:layout_width="wrap_content"
-                          android:layout_height="wrap_content"
-                          android:layout_marginStart="8dp"
-                          android:maxLines="1"
-                          android:text="Level: Off"
-                          android:textAllCaps="false"
-                          android:textSize="12sp" />
-
-                      <TextView
-                          android:id="@+id/scaleText"
-                          android:layout_width="wrap_content"
-                          android:layout_height="wrap_content"
-                          android:layout_marginStart="12dp"
-                          android:text="Not calibrated"
-                          android:textColor="#FFEB3B"
-                          android:textSize="13sp" />
-                  </LinearLayout>
+                      android:layout_marginTop="4dp"
+                      android:ellipsize="end"
+                      android:maxLines="4"
+                      android:textColor="#B0BEC5"
+                      android:textSize="12sp"
+                      android:visibility="gone" />
               </LinearLayout>
 
               <LinearLayout
@@ -1842,14 +2347,15 @@ jobs:
                       android:textSize="12sp" />
 
                   <Button
-                      android:id="@+id/btnUnit"
+                      android:id="@+id/btnSettings"
                       android:layout_width="0dp"
                       android:layout_height="wrap_content"
-                      android:layout_weight="1.4"
+                      android:layout_weight="0.9"
+                      android:contentDescription="Settings"
                       android:maxLines="1"
-                      android:text="Unit: cm"
+                      android:text="⚙️"
                       android:textAllCaps="false"
-                      android:textSize="12sp" />
+                      android:textSize="20sp" />
               </LinearLayout>
           </FrameLayout>
           ARSCALE_EOF
