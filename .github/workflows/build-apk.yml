@@ -93,7 +93,7 @@ jobs:
                   targetSdk = 34
                   // Grows with every GitHub build so a new APK can be installed over the old one.
                   versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
-                  versionName = "1.1"
+                  versionName = "1.2"
               }
 
               // Same key every build => the phone accepts the new APK as an update (no uninstall needed).
@@ -158,8 +158,19 @@ jobs:
                   <activity
                       android:name=".MainActivity"
                       android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|smallestScreenSize"
+                      android:exported="false"
+                      android:screenOrientation="portrait" />
+
+                  <activity
+                      android:name=".LevelActivity"
+                      android:exported="false"
+                      android:screenOrientation="portrait" />
+
+                  <activity
+                      android:name=".HomeActivity"
                       android:exported="true"
-                      android:screenOrientation="portrait">
+                      android:screenOrientation="portrait"
+                      android:theme="@style/HomeTheme">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
                           <category android:name="android.intent.category.LAUNCHER" />
@@ -319,6 +330,91 @@ jobs:
                       return fb
                   }
               }
+          }
+          ARSCALE_EOF
+          mkdir -p "$(dirname 'app/src/main/java/com/arscale/app/HomeActivity.kt')"
+          cat > 'app/src/main/java/com/arscale/app/HomeActivity.kt' <<'ARSCALE_EOF'
+          package com.arscale.app
+
+          import android.app.Activity
+          import android.content.Intent
+          import android.os.Bundle
+
+          /** Start screen: one tile per tool. */
+          class HomeActivity : Activity() {
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  setContentView(R.layout.activity_home)
+
+                  findViewById<android.view.View>(R.id.cardScale).setOnClickListener {
+                      startActivity(Intent(this, MainActivity::class.java))
+                  }
+                  findViewById<android.view.View>(R.id.cardLevel).setOnClickListener {
+                      startActivity(Intent(this, LevelActivity::class.java))
+                  }
+              }
+          }
+          ARSCALE_EOF
+          mkdir -p "$(dirname 'app/src/main/java/com/arscale/app/LevelActivity.kt')"
+          cat > 'app/src/main/java/com/arscale/app/LevelActivity.kt' <<'ARSCALE_EOF'
+          package com.arscale.app
+
+          import android.app.Activity
+          import android.content.Context
+          import android.hardware.Sensor
+          import android.hardware.SensorEvent
+          import android.hardware.SensorEventListener
+          import android.hardware.SensorManager
+          import android.os.Bundle
+          import android.view.WindowManager
+          import android.widget.Toast
+
+          /** Stand-alone spirit level screen (no camera needed). */
+          class LevelActivity : Activity(), SensorEventListener {
+
+              private lateinit var levelView: LevelView
+              private val gravity = FloatArray(3)
+              private var gravityInit = false
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                  setContentView(R.layout.activity_level)
+                  levelView = findViewById(R.id.levelView)
+              }
+
+              override fun onResume() {
+                  super.onResume()
+                  val sm = getSystemService(Context.SENSOR_SERVICE) as SensorManager
+                  val sensor = sm.getDefaultSensor(Sensor.TYPE_GRAVITY)
+                      ?: sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+                  if (sensor == null) {
+                      Toast.makeText(this, "This phone has no tilt sensor", Toast.LENGTH_LONG).show()
+                      finish()
+                      return
+                  }
+                  gravityInit = false
+                  sm.registerListener(this, sensor, SensorManager.SENSOR_DELAY_GAME)
+              }
+
+              override fun onPause() {
+                  super.onPause()
+                  (getSystemService(Context.SENSOR_SERVICE) as SensorManager).unregisterListener(this)
+              }
+
+              override fun onSensorChanged(event: SensorEvent) {
+                  if (!gravityInit) {
+                      for (i in 0..2) gravity[i] = event.values[i]
+                      gravityInit = true
+                  } else {
+                      // Light smoothing so the bubble does not jitter.
+                      for (i in 0..2) gravity[i] += 0.2f * (event.values[i] - gravity[i])
+                  }
+                  levelView.setGravity(gravity[0], gravity[1], gravity[2])
+              }
+
+              override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
           }
           ARSCALE_EOF
           mkdir -p "$(dirname 'app/src/main/java/com/arscale/app/LevelView.kt')"
@@ -1439,6 +1535,15 @@ jobs:
               }
           }
           ARSCALE_EOF
+          mkdir -p "$(dirname 'app/src/main/res/drawable/card_bg.xml')"
+          cat > 'app/src/main/res/drawable/card_bg.xml' <<'ARSCALE_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <shape xmlns:android="http://schemas.android.com/apk/res/android"
+              android:shape="rectangle">
+              <solid android:color="#EEEEEE" />
+              <corners android:radius="28dp" />
+          </shape>
+          ARSCALE_EOF
           mkdir -p "$(dirname 'app/src/main/res/drawable/ic_launcher.xml')"
           cat > 'app/src/main/res/drawable/ic_launcher.xml' <<'ARSCALE_EOF'
           <vector xmlns:android="http://schemas.android.com/apk/res/android"
@@ -1456,6 +1561,152 @@ jobs:
                   android:fillColor="#1E88E5"
                   android:pathData="M26,40h4v12h-4z M38,40h4v16h-4z M50,40h4v12h-4z M62,40h4v16h-4z M74,40h4v12h-4z" />
           </vector>
+          ARSCALE_EOF
+          mkdir -p "$(dirname 'app/src/main/res/layout/activity_home.xml')"
+          cat > 'app/src/main/res/layout/activity_home.xml' <<'ARSCALE_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:background="#FAFAFA"
+              android:orientation="vertical"
+              android:padding="20dp">
+
+              <LinearLayout
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:gravity="center_vertical"
+                  android:orientation="horizontal"
+                  android:paddingTop="12dp"
+                  android:paddingBottom="22dp">
+
+                  <TextView
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:text="📏"
+                      android:textSize="32sp" />
+
+                  <TextView
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:layout_marginStart="12dp"
+                      android:text="Measure"
+                      android:textColor="#222222"
+                      android:textSize="32sp"
+                      android:textStyle="bold" />
+              </LinearLayout>
+
+              <LinearLayout
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:orientation="horizontal">
+
+                  <LinearLayout
+                      android:id="@+id/cardScale"
+                      android:layout_width="0dp"
+                      android:layout_height="170dp"
+                      android:layout_marginEnd="8dp"
+                      android:layout_weight="1"
+                      android:background="@drawable/card_bg"
+                      android:clickable="true"
+                      android:focusable="true"
+                      android:foreground="?android:attr/selectableItemBackground"
+                      android:gravity="center"
+                      android:orientation="vertical">
+
+                      <TextView
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:text="📏"
+                          android:textSize="52sp" />
+
+                      <TextView
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:layout_marginTop="6dp"
+                          android:text="Scale"
+                          android:textColor="#222222"
+                          android:textSize="22sp"
+                          android:textStyle="bold" />
+
+                      <TextView
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:text="Camera measure"
+                          android:textColor="#777777"
+                          android:textSize="15sp" />
+                  </LinearLayout>
+
+                  <LinearLayout
+                      android:id="@+id/cardLevel"
+                      android:layout_width="0dp"
+                      android:layout_height="170dp"
+                      android:layout_marginStart="8dp"
+                      android:layout_weight="1"
+                      android:background="@drawable/card_bg"
+                      android:clickable="true"
+                      android:focusable="true"
+                      android:foreground="?android:attr/selectableItemBackground"
+                      android:gravity="center"
+                      android:orientation="vertical">
+
+                      <TextView
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:text="📐"
+                          android:textSize="52sp" />
+
+                      <TextView
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:layout_marginTop="6dp"
+                          android:text="Spirit Level"
+                          android:textColor="#222222"
+                          android:textSize="22sp"
+                          android:textStyle="bold" />
+
+                      <TextView
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:text="Bubble level"
+                          android:textColor="#777777"
+                          android:textSize="15sp" />
+                  </LinearLayout>
+              </LinearLayout>
+          </LinearLayout>
+          ARSCALE_EOF
+          mkdir -p "$(dirname 'app/src/main/res/layout/activity_level.xml')"
+          cat > 'app/src/main/res/layout/activity_level.xml' <<'ARSCALE_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:background="#12161A">
+
+              <com.arscale.app.LevelView
+                  android:id="@+id/levelView"
+                  android:layout_width="match_parent"
+                  android:layout_height="match_parent" />
+
+              <TextView
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:layout_gravity="top"
+                  android:padding="20dp"
+                  android:text="Spirit Level"
+                  android:textColor="#FFFFFF"
+                  android:textSize="24sp"
+                  android:textStyle="bold" />
+
+              <TextView
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:layout_gravity="bottom"
+                  android:padding="20dp"
+                  android:text="Lay the phone flat on a surface, or hold it upright against a wall / on its edge."
+                  android:textColor="#B0B0B0"
+                  android:textSize="14sp" />
+          </FrameLayout>
           ARSCALE_EOF
           mkdir -p "$(dirname 'app/src/main/res/layout/activity_main.xml')"
           cat > 'app/src/main/res/layout/activity_main.xml' <<'ARSCALE_EOF'
@@ -1613,6 +1864,12 @@ jobs:
           <resources>
               <style name="AppTheme" parent="@android:style/Theme.Material.NoActionBar">
                   <item name="android:windowFullscreen">true</item>
+              </style>
+
+              <style name="HomeTheme" parent="@android:style/Theme.Material.Light.NoActionBar">
+                  <item name="android:windowBackground">#FAFAFA</item>
+                  <item name="android:statusBarColor">#FAFAFA</item>
+                  <item name="android:windowLightStatusBar">true</item>
               </style>
           </resources>
           ARSCALE_EOF
