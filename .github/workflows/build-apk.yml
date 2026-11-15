@@ -158,7 +158,8 @@ jobs:
                   <activity
                       android:name=".MainActivity"
                       android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|smallestScreenSize"
-                      android:exported="true">
+                      android:exported="true"
+                      android:screenOrientation="portrait">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
                           <category android:name="android.intent.category.LAUNCHER" />
@@ -320,6 +321,176 @@ jobs:
               }
           }
           ARSCALE_EOF
+          mkdir -p "$(dirname 'app/src/main/java/com/arscale/app/LevelView.kt')"
+          cat > 'app/src/main/java/com/arscale/app/LevelView.kt' <<'ARSCALE_EOF'
+          package com.arscale.app
+
+          import android.content.Context
+          import android.graphics.Canvas
+          import android.graphics.Color
+          import android.graphics.Paint
+          import android.graphics.RectF
+          import android.graphics.Typeface
+          import android.util.AttributeSet
+          import android.view.View
+          import java.util.Locale
+          import kotlin.math.abs
+          import kotlin.math.acos
+          import kotlin.math.asin
+          import kotlin.math.atan2
+          import kotlin.math.sqrt
+
+          /**
+           * Spirit level drawn from the phone's gravity sensor.
+           *
+           * - Phone lying flat (on a table / floor): round bubble level, shows tilt in both directions.
+           * - Phone held upright (against a wall, or on its edge): horizontal bubble tube, shows how much the
+           *   phone is rotated from level, plus the forward/back lean.
+           *
+           * Like a real level, the bubble moves toward the HIGH side.
+           */
+          class LevelView @JvmOverloads constructor(
+              context: Context,
+              attrs: AttributeSet? = null
+          ) : View(context, attrs) {
+
+              private val d = resources.displayMetrics.density
+
+              private var gx = 0f
+              private var gy = 0f
+              private var gz = 0f
+              private var hasData = false
+
+              private val colorOk = Color.parseColor("#43A047")
+              private val colorNear = Color.parseColor("#FFB300")
+              private val colorBad = Color.parseColor("#E53935")
+
+              private val panelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                  color = Color.argb(190, 0, 0, 0)
+                  style = Paint.Style.FILL
+              }
+              private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                  color = Color.WHITE
+                  style = Paint.Style.STROKE
+                  strokeWidth = 2.5f * d
+              }
+              private val markPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                  color = Color.argb(200, 255, 255, 255)
+                  style = Paint.Style.STROKE
+                  strokeWidth = 1.5f * d
+              }
+              private val bubblePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                  style = Paint.Style.FILL
+              }
+              private val bubbleRim = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                  color = Color.WHITE
+                  style = Paint.Style.STROKE
+                  strokeWidth = 2f * d
+              }
+              private val bigText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                  color = Color.WHITE
+                  textSize = 22f * d
+                  typeface = Typeface.DEFAULT_BOLD
+                  textAlign = Paint.Align.CENTER
+              }
+              private val smallText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                  color = Color.parseColor("#E0E0E0")
+                  textSize = 14f * d
+                  textAlign = Paint.Align.CENTER
+              }
+              private val rect = RectF()
+
+              /** Gravity reading in device axes (m/s^2): x = right, y = up the screen, z = out of the screen. */
+              fun setGravity(x: Float, y: Float, z: Float) {
+                  gx = x
+                  gy = y
+                  gz = z
+                  hasData = true
+                  invalidate()
+              }
+
+              private fun statusColor(angle: Float): Int {
+                  val a = abs(angle)
+                  return if (a < 0.5f) colorOk else if (a < 2f) colorNear else colorBad
+              }
+
+              private fun fmt(v: Float): String = String.format(Locale.US, "%.1f°", v)
+
+              override fun onDraw(canvas: Canvas) {
+                  super.onDraw(canvas)
+                  if (!hasData) return
+                  val g = sqrt(gx * gx + gy * gy + gz * gz)
+                  if (g < 1f) return
+
+                  val cx = width / 2f
+                  val cy = height / 2f
+                  val flat = abs(gz) / g > 0.8f
+
+                  if (flat) drawFlat(canvas, cx, cy, g) else drawUpright(canvas, cx, cy, g)
+              }
+
+              private fun drawFlat(canvas: Canvas, cx: Float, cy: Float, g: Float) {
+                  val tiltX = Math.toDegrees(asin((gx / g).coerceIn(-1f, 1f).toDouble())).toFloat()
+                  val tiltY = Math.toDegrees(asin((gy / g).coerceIn(-1f, 1f).toDouble())).toFloat()
+                  val total = Math.toDegrees(acos((abs(gz) / g).coerceIn(0f, 1f).toDouble())).toFloat()
+
+                  val r = 100f * d
+                  val ccy = cy - 10f * d
+                  rect.set(cx - r - 24f * d, ccy - r - 24f * d, cx + r + 24f * d, ccy + r + 100f * d)
+                  canvas.drawRoundRect(rect, 20f * d, 20f * d, panelPaint)
+
+                  canvas.drawCircle(cx, ccy, r, ringPaint)
+                  canvas.drawCircle(cx, ccy, 18f * d, markPaint)
+                  canvas.drawLine(cx - r, ccy, cx + r, ccy, markPaint)
+                  canvas.drawLine(cx, ccy - r, cx, ccy + r, markPaint)
+
+                  // 10 degrees of tilt = bubble at the edge. Bubble goes to the high side.
+                  var ox = (tiltX / 10f).coerceIn(-1f, 1f) * r
+                  var oy = (-tiltY / 10f).coerceIn(-1f, 1f) * r
+                  val len = sqrt(ox * ox + oy * oy)
+                  val maxLen = r - 16f * d
+                  if (len > maxLen) {
+                      ox *= maxLen / len
+                      oy *= maxLen / len
+                  }
+                  bubblePaint.color = statusColor(total)
+                  canvas.drawCircle(cx + ox, ccy + oy, 16f * d, bubblePaint)
+                  canvas.drawCircle(cx + ox, ccy + oy, 16f * d, bubbleRim)
+
+                  val label = if (total < 0.5f) "LEVEL" else "Tilt " + fmt(total)
+                  canvas.drawText(label, cx, ccy + r + 40f * d, bigText)
+                  canvas.drawText("Left-right " + fmt(tiltX) + "   Up-down " + fmt(tiltY), cx, ccy + r + 68f * d, smallText)
+              }
+
+              private fun drawUpright(canvas: Canvas, cx: Float, cy: Float, g: Float) {
+                  // Rotation of the phone in the plane of the screen, folded to the nearest 90 degrees so it
+                  // works for portrait and landscape. Positive = right side low.
+                  var theta = Math.toDegrees(atan2(-gx.toDouble(), gy.toDouble())).toFloat()
+                  theta -= 90f * Math.round(theta / 90f)
+                  val lean = Math.toDegrees(asin((gz / g).coerceIn(-1f, 1f).toDouble())).toFloat()
+
+                  val tubeW = 260f * d
+                  val tubeH = 46f * d
+                  rect.set(cx - tubeW / 2f - 24f * d, cy - tubeH / 2f - 24f * d, cx + tubeW / 2f + 24f * d, cy + tubeH / 2f + 110f * d)
+                  canvas.drawRoundRect(rect, 20f * d, 20f * d, panelPaint)
+
+                  rect.set(cx - tubeW / 2f, cy - tubeH / 2f, cx + tubeW / 2f, cy + tubeH / 2f)
+                  canvas.drawRoundRect(rect, tubeH / 2f, tubeH / 2f, ringPaint)
+                  canvas.drawLine(cx - 18f * d, cy - tubeH / 2f, cx - 18f * d, cy + tubeH / 2f, markPaint)
+                  canvas.drawLine(cx + 18f * d, cy - tubeH / 2f, cx + 18f * d, cy + tubeH / 2f, markPaint)
+
+                  val travel = tubeW / 2f - 22f * d
+                  val ox = (-theta / 10f).coerceIn(-1f, 1f) * travel
+                  bubblePaint.color = statusColor(theta)
+                  canvas.drawCircle(cx + ox, cy, 16f * d, bubblePaint)
+                  canvas.drawCircle(cx + ox, cy, 16f * d, bubbleRim)
+
+                  val label = if (abs(theta) < 0.5f) "LEVEL" else "Tilt " + fmt(abs(theta))
+                  canvas.drawText(label, cx, cy + tubeH / 2f + 42f * d, bigText)
+                  canvas.drawText("Forward/back lean " + fmt(lean), cx, cy + tubeH / 2f + 70f * d, smallText)
+              }
+          }
+          ARSCALE_EOF
           mkdir -p "$(dirname 'app/src/main/java/com/arscale/app/MainActivity.kt')"
           cat > 'app/src/main/java/com/arscale/app/MainActivity.kt' <<'ARSCALE_EOF'
           package com.arscale.app
@@ -330,6 +501,10 @@ jobs:
           import android.content.Context
           import android.content.pm.PackageManager
           import android.graphics.PointF
+          import android.hardware.Sensor
+          import android.hardware.SensorEvent
+          import android.hardware.SensorEventListener
+          import android.hardware.SensorManager
           import android.hardware.camera2.CameraCharacteristics
           import android.hardware.camera2.CameraManager
           import android.hardware.display.DisplayManager
@@ -338,6 +513,7 @@ jobs:
           import android.opengl.Matrix
           import android.os.Bundle
           import android.view.MotionEvent
+          import android.view.View
           import android.view.WindowManager
           import android.text.InputType
           import android.widget.Button
@@ -409,6 +585,28 @@ jobs:
               private lateinit var btnFlash: Button
               private lateinit var btnCalibrate: Button
               private lateinit var scaleText: TextView
+              private lateinit var levelView: LevelView
+              private lateinit var btnLevel: Button
+
+              // Spirit level (UI thread only)
+              private var levelOn = false
+              private val gravity = FloatArray(3)
+              private var gravityInit = false
+
+              private val levelListener = object : SensorEventListener {
+                  override fun onSensorChanged(event: SensorEvent) {
+                      if (!gravityInit) {
+                          for (i in 0..2) gravity[i] = event.values[i]
+                          gravityInit = true
+                      } else {
+                          // Light smoothing so the bubble does not jitter.
+                          for (i in 0..2) gravity[i] += 0.2f * (event.values[i] - gravity[i])
+                      }
+                      levelView.setGravity(gravity[0], gravity[1], gravity[2])
+                  }
+
+                  override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+              }
 
               // Calibration factor: shown distance = ARCore distance * scale (1.0 = not calibrated).
               @Volatile
@@ -485,6 +683,10 @@ jobs:
                   updateScaleText()
                   btnCalibrate.setOnClickListener { showCalibrateMenu() }
 
+                  levelView = findViewById(R.id.levelView)
+                  btnLevel = findViewById(R.id.btnLevel)
+                  btnLevel.setOnClickListener { setLevel(!levelOn) }
+
                   surfaceView.preserveEGLContextOnPause = true
                   surfaceView.setEGLContextClientVersion(2)
                   surfaceView.setEGLConfigChooser(8, 8, 8, 8, 16, 0)
@@ -530,6 +732,7 @@ jobs:
 
               override fun onResume() {
                   super.onResume()
+                  if (levelOn) startLevelSensor()
 
                   if (session == null) {
                       session = createSession() ?: return
@@ -553,6 +756,7 @@ jobs:
 
               override fun onPause() {
                   super.onPause()
+                  stopLevelSensor()
                   if (session != null) {
                       getSystemService(DisplayManager::class.java)?.unregisterDisplayListener(displayListener)
                       // GLSurfaceView must be paused before the session so the GL thread stops using it.
@@ -823,6 +1027,34 @@ jobs:
 
               /** Distance in metres after applying the calibration factor. */
               private fun dist(a: Anchor, b: Anchor): Double = rawDist(a, b) * scale
+
+              // ---------------------------------------------------------------- spirit level
+
+              private fun setLevel(on: Boolean) {
+                  levelOn = on
+                  levelView.visibility = if (on) View.VISIBLE else View.GONE
+                  btnLevel.text = if (on) "Level: On" else "Level: Off"
+                  if (on) startLevelSensor() else stopLevelSensor()
+              }
+
+              private fun startLevelSensor() {
+                  val sm = getSystemService(Context.SENSOR_SERVICE) as SensorManager
+                  val sensor = sm.getDefaultSensor(Sensor.TYPE_GRAVITY)
+                      ?: sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+                  if (sensor == null) {
+                      toast("This phone has no tilt sensor")
+                      levelOn = false
+                      levelView.visibility = View.GONE
+                      btnLevel.text = "Level: Off"
+                      return
+                  }
+                  gravityInit = false
+                  sm.registerListener(levelListener, sensor, SensorManager.SENSOR_DELAY_GAME)
+              }
+
+              private fun stopLevelSensor() {
+                  (getSystemService(Context.SENSOR_SERVICE) as SensorManager).unregisterListener(levelListener)
+              }
 
               // ---------------------------------------------------------------- calibration
 
@@ -1242,6 +1474,12 @@ jobs:
                   android:layout_width="match_parent"
                   android:layout_height="match_parent" />
 
+              <com.arscale.app.LevelView
+                  android:id="@+id/levelView"
+                  android:layout_width="match_parent"
+                  android:layout_height="match_parent"
+                  android:visibility="gone" />
+
               <LinearLayout
                   android:layout_width="match_parent"
                   android:layout_height="wrap_content"
@@ -1280,6 +1518,16 @@ jobs:
                           android:layout_height="wrap_content"
                           android:maxLines="1"
                           android:text="Calibrate"
+                          android:textAllCaps="false"
+                          android:textSize="12sp" />
+
+                      <Button
+                          android:id="@+id/btnLevel"
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:layout_marginStart="8dp"
+                          android:maxLines="1"
+                          android:text="Level: Off"
                           android:textAllCaps="false"
                           android:textSize="12sp" />
 
