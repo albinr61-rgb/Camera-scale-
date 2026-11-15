@@ -339,7 +339,9 @@ jobs:
           import android.os.Bundle
           import android.view.MotionEvent
           import android.view.WindowManager
+          import android.text.InputType
           import android.widget.Button
+          import android.widget.EditText
           import android.widget.TextView
           import android.widget.Toast
           import com.google.ar.core.Anchor
@@ -405,6 +407,12 @@ jobs:
               private lateinit var statusText: TextView
               private lateinit var btnUnit: Button
               private lateinit var btnFlash: Button
+              private lateinit var btnCalibrate: Button
+              private lateinit var scaleText: TextView
+
+              // Calibration factor: shown distance = ARCore distance * scale (1.0 = not calibrated).
+              @Volatile
+              private var scale = 1.0
 
               @Volatile
               private var hasFlash = false
@@ -465,6 +473,17 @@ jobs:
                   statusText = findViewById(R.id.statusText)
                   btnUnit = findViewById(R.id.btnUnit)
                   btnFlash = findViewById(R.id.btnFlash)
+                  btnCalibrate = findViewById(R.id.btnCalibrate)
+                  scaleText = findViewById(R.id.scaleText)
+
+                  scale = try {
+                      getSharedPreferences("arscale", MODE_PRIVATE).getFloat("scale", 1f).toDouble()
+                  } catch (e: Exception) {
+                      1.0
+                  }
+                  if (scale < 0.05 || scale > 20.0) scale = 1.0
+                  updateScaleText()
+                  btnCalibrate.setOnClickListener { showCalibrateMenu() }
 
                   surfaceView.preserveEGLContextOnPause = true
                   surfaceView.setEGLContextClientVersion(2)
@@ -792,13 +811,93 @@ jobs:
                   return sb.toString()
               }
 
-              private fun dist(a: Anchor, b: Anchor): Double {
+              /** Straight ARCore distance in metres, without calibration. */
+              private fun rawDist(a: Anchor, b: Anchor): Double {
                   val pa = a.pose
                   val pb = b.pose
                   val dx = (pa.tx() - pb.tx()).toDouble()
                   val dy = (pa.ty() - pb.ty()).toDouble()
                   val dz = (pa.tz() - pb.tz()).toDouble()
                   return sqrt(dx * dx + dy * dy + dz * dz)
+              }
+
+              /** Distance in metres after applying the calibration factor. */
+              private fun dist(a: Anchor, b: Anchor): Double = rawDist(a, b) * scale
+
+              // ---------------------------------------------------------------- calibration
+
+              private fun showCalibrateMenu() {
+                  val items = arrayOf(
+                      "Calibrate using the points on screen",
+                      "Clear calibration (back to x1.000)"
+                  )
+                  AlertDialog.Builder(this)
+                      .setTitle(String.format(Locale.US, "Calibration (now x%.3f)", scale))
+                      .setItems(items) { _, which ->
+                          if (which == 0) commands.add({ beginCalibration() }) else setScale(1.0)
+                      }
+                      .show()
+              }
+
+              /** GL thread: needs at least A and B placed on a length you know. */
+              private fun beginCalibration() {
+                  if (points.size < 2) {
+                      toast("First tap A and B on a known length (e.g. 100 cm), then press Calibrate again.")
+                      return
+                  }
+                  var raw = 0.0
+                  for (i in 1 until points.size) raw += rawDist(points[i - 1].anchor, points[i].anchor)
+                  if (raw < 0.02) {
+                      toast("Measured length is too small to calibrate.")
+                      return
+                  }
+                  runOnUiThread { askRealLength(raw) }
+              }
+
+              private fun askRealLength(rawMeters: Double) {
+                  val u = unit
+                  val input = EditText(this)
+                  input.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+                  input.setText(if (u == LengthUnit.CM) "100" else "")
+                  input.setSelection(input.text.length)
+                  AlertDialog.Builder(this)
+                      .setTitle("Real length (" + u.label + ")")
+                      .setMessage("ARCore measured " + u.format(rawMeters) + ". Enter the true length you measured.")
+                      .setView(input)
+                      .setPositiveButton("Set") { _, _ ->
+                          val v = input.text.toString().trim().toDoubleOrNull()
+                          if (v == null || v <= 0.0) {
+                              toast("Enter a valid number.")
+                          } else {
+                              val s = (v / u.perMeter) / rawMeters
+                              if (s < 0.05 || s > 20.0) {
+                                  toast("That differs too much from the measured value. Not applied.")
+                              } else {
+                                  setScale(s)
+                              }
+                          }
+                      }
+                      .setNegativeButton("Cancel", null)
+                      .show()
+              }
+
+              private fun setScale(s: Double) {
+                  scale = s
+                  try {
+                      getSharedPreferences("arscale", MODE_PRIVATE).edit().putFloat("scale", s.toFloat()).apply()
+                  } catch (e: Exception) {
+                      // Calibration still applies for this session.
+                  }
+                  runOnUiThread { updateScaleText() }
+                  toast(String.format(Locale.US, "Calibration set: x%.3f", s))
+              }
+
+              private fun updateScaleText() {
+                  scaleText.text = if (Math.abs(scale - 1.0) < 1e-6) {
+                      "Not calibrated"
+                  } else {
+                      String.format(Locale.US, "Calibrated x%.3f", scale)
+                  }
               }
 
               private fun undoPoint() {
@@ -1167,6 +1266,32 @@ jobs:
                       android:text="Move the phone slowly to start tracking"
                       android:textColor="#E0E0E0"
                       android:textSize="14sp" />
+
+                  <LinearLayout
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="6dp"
+                      android:gravity="center_vertical"
+                      android:orientation="horizontal">
+
+                      <Button
+                          android:id="@+id/btnCalibrate"
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:maxLines="1"
+                          android:text="Calibrate"
+                          android:textAllCaps="false"
+                          android:textSize="12sp" />
+
+                      <TextView
+                          android:id="@+id/scaleText"
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:layout_marginStart="12dp"
+                          android:text="Not calibrated"
+                          android:textColor="#FFEB3B"
+                          android:textSize="13sp" />
+                  </LinearLayout>
               </LinearLayout>
 
               <LinearLayout
